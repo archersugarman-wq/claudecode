@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ski Simulator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a1628; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 8px; }
+    canvas { display: block; cursor: none; }
+    #info { color: #6688aa; font: 12px monospace; letter-spacing: 0.05em; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">← → steer &nbsp;|&nbsp; ↑ tuck (faster) &nbsp;|&nbsp; ↓ snowplow (brake) &nbsp;|&nbsp; SPACE start</div>
+<script>
+const W = 900, H = 600;
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+
+// --- Physics constants ---
+const SLOPE_DEG  = 18;                                          // slope steepness
+const G          = 9.81;
+const G_SLOPE    = G * Math.sin(SLOPE_DEG * Math.PI / 180);    // 3.03 m/s² gravity along slope
+const G_NORMAL   = G * Math.cos(SLOPE_DEG * Math.PI / 180);    // 9.33 m/s² normal force
+const MU_SNOW    = 0.04;                                        // kinetic friction on groomed snow
+const FRICTION   = G_NORMAL * MU_SNOW;                         // 0.37 m/s² friction decel
+const DRAG_STAND = 0.0134;                                      // terminal ~50 km/h standing
+const DRAG_TUCK  = 0.0054;                                      // terminal ~80 km/h tucked
+const DRAG_PLOW  = 0.08;                                        // terminal ~25 km/h snowplow
+const PLOW_BRAKE = 6.0;                                         // extra braking force
+const TURN_RESP  = 5.0;                                         // lateral response speed
+const TURN_DRAG  = 0.18;                                        // speed penalty from carving
+
+// --- Camera / renderer ---
+const FOCAL     = 420;
+const HORIZON_Y = 210;
+const SKIER_Y   = H - 130;
+
+// --- Game state ---
+let state = 'start';
+let speed  = 0;    // m/s downslope
+let skierX = 0;    // m lateral position
+let skierZ = 0;    // m downslope distance
+let skierVX = 0;   // m/s lateral velocity
+let distance = 0, maxSpeed = 0, sessionTime = 0, crashTimer = 0;
+
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if ([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+  if (e.key === ' ') onSpace();
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+function onSpace() {
+  if (state === 'start' || (state === 'dead' && crashTimer > 1.2)) startRun();
+}
+
+function startRun() {
+  state = 'playing';
+  speed = 3; skierX = 0; skierZ = 0; skierVX = 0;
+  distance = 0; maxSpeed = 0; sessionTime = 0; crashTimer = 0;
+  trackHistory.length = 0;
+  particles.length = 0;
+  generateObjects();
+}
+
+// --- Terrain objects ---
+let objects = [];
+function generateObjects() {
+  objects = [];
+  for (let z = 25; z < 6000; z += Math.random() * 7 + 3) {
+    const halfWidth = Math.min(14 + z * 0.04, 38); // course widens down the mountain
+    const side = Math.random() > 0.5 ? 1 : -1;
+    const xBase = side * (halfWidth * (0.5 + Math.random() * 0.5));
+
+    if (Math.random() < 0.55) {
+      objects.push({
+        type: 'tree', z,
+        x: xBase + (Math.random() - 0.5) * 4,
+        height: 3.5 + Math.random() * 4.5,
+        tint: 20 + Math.random() * 15,   // trunk lightness
+        snowTint: 85 + Math.random() * 12,
+        hit: false,
+      });
+    }
+    if (Math.random() < 0.07 && z > 40) {
+      objects.push({
+        type: 'rock', z,
+        x: (Math.random() - 0.5) * halfWidth * 1.4,
+        r: 0.6 + Math.random() * 1.2,
+        hit: false,
+      });
+    }
+    if (Math.random() < 0.12 && z > 30) {
+      objects.push({
+        type: 'gate', z,
+        x: (Math.random() - 0.5) * 18,
+        color: Math.random() > 0.5 ? '#ff3333' : '#3366ff',
+        hit: false,
+      });
+    }
+  }
+  // Sort far→near (painter's algorithm, z descending = farthest first)
+  objects.sort((a, b) => b.z - a.z);
+}
+
+// --- Track history ---
+const trackHistory = [];
+const MAX_TRACK = 250;
+
+// --- Snow particles ---
+const particles = [];
+function spawnParticles(n, speedMult) {
+  for (let i = 0; i < n; i++) {
+    particles.push({
+      x: skierX + (Math.random() - 0.5) * 1.5,
+      z: skierZ - 0.5,
+      vx: -skierVX * 0.4 + (Math.random() - 0.5) * 5,
+      vz: -speed * 0.12 * speedMult - Math.random() * 2,
+      life: 0.8 + Math.random() * 0.4,
+      size: 0.15 + Math.random() * 0.25,
+    });
+  }
+}
+
+// --- Update ---
+function update(dt) {
+  if (state !== 'playing') return;
+  sessionTime += dt;
+
+  const left  = keys['ArrowLeft']  || keys['a'];
+  const right = keys['ArrowRight'] || keys['d'];
+  const tuck  = keys['ArrowUp']    || keys['w'];
+  const plow  = keys['ArrowDown']  || keys['s'];
+
+  // Drag coefficient based on stance
+  const dragK = tuck ? DRAG_TUCK : plow ? DRAG_PLOW : DRAG_STAND;
+
+  // Lateral dynamics (carving)
+  const maxTurnV = Math.min(speed, 16) * 0.85;
+  const targetVX = (left ? -1 : right ? 1 : 0) * maxTurnV;
+  skierVX += (targetVX - skierVX) * Math.min(dt * TURN_RESP, 1);
+
+  // Carving slows you down (edge bite)
+  const carvingDrag = Math.abs(skierVX) * TURN_DRAG;
+
+  // Longitudinal physics
+  const airDrag   = dragK * speed * speed;
+  const snowBrake = FRICTION + (plow ? PLOW_BRAKE : 0);
+  const accel     = G_SLOPE - airDrag - snowBrake - carvingDrag;
+  speed = Math.max(0, speed + accel * dt);
+
+  skierX += skierVX * dt;
+  skierZ += speed * dt;
+  distance = skierZ;
+  maxSpeed = Math.max(maxSpeed, speed);
+
+  // Record track
+  trackHistory.push({ x: skierX, z: skierZ });
+  if (trackHistory.length > MAX_TRACK) trackHistory.shift();
+
+  // Snow spray
+  const spray = Math.abs(skierVX) > 2.5 || plow;
+  if (spray && speed > 2) spawnParticles(2 + (plow ? 3 : 0), 1);
+
+  // Update particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.z += p.vz * dt;
+    p.life -= dt * 1.8;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Collision
+  for (const obj of objects) {
+    if (obj.hit) continue;
+    const dz = obj.z - skierZ;
+    if (dz < -4 || dz > 8) continue;
+    const dx = obj.x - skierX;
+    const hitR = obj.type === 'tree' ? 0.9 : obj.type === 'rock' ? obj.r * 0.75 : 0;
+    if (hitR > 0 && dx * dx + dz * dz < hitR * hitR) {
+      obj.hit = true; state = 'dead'; return;
+    }
+  }
+}
+
+// --- Coordinate transform ---
+function project(wx, wz) {
+  const relZ = wz - skierZ;
+  if (relZ <= 0.05) return null;
+  const scale = FOCAL / relZ;
+  return {
+    x: W / 2 + (wx - skierX) * scale,
+    y: HORIZON_Y + scale * 14,
+    scale,
+  };
+}
+
+// --- Rendering ---
+function drawSky() {
+  const grad = ctx.createLinearGradient(0, 0, 0, HORIZON_Y);
+  grad.addColorStop(0, '#4a7fb5');
+  grad.addColorStop(0.6, '#89bfdf');
+  grad.addColorStop(1, '#b8d9f0');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, HORIZON_Y);
+
+  // Mountain silhouette
+  ctx.fillStyle = '#7090b0';
+  ctx.beginPath();
+  ctx.moveTo(0, HORIZON_Y);
+  const pts = [0,180, 120,80, 200,130, 310,50, 420,110, 530,40, 640,95, 760,60, 900,120, 900,180];
+  for (let i = 0; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i+1]);
+  ctx.closePath(); ctx.fill();
+
+  // Snow caps
+  ctx.fillStyle = '#ddeeff';
+  ctx.beginPath();
+  const caps = [310,50,280,75,340,72, 530,40,505,68,556,65, 760,60,735,88,785,84];
+  for (let i = 0; i < caps.length; i += 9) {
+    ctx.moveTo(caps[i], caps[i+1]);
+    ctx.lineTo(caps[i+2], caps[i+3]); ctx.lineTo(caps[i+4], caps[i+5]);
+    ctx.closePath();
+  }
+  ctx.fill();
+}
+
+function drawSlope() {
+  const snowGrad = ctx.createLinearGradient(0, HORIZON_Y, 0, H);
+  snowGrad.addColorStop(0, '#ddeefa');
+  snowGrad.addColorStop(0.4, '#cce4f5');
+  snowGrad.addColorStop(1, '#b8d0e8');
+  ctx.fillStyle = snowGrad;
+  ctx.fillRect(0, HORIZON_Y, W, H - HORIZON_Y);
+
+  // Subtle slope shading lines (mogul shadows)
+  ctx.strokeStyle = 'rgba(160,185,210,0.3)';
+  ctx.lineWidth = 1;
+  for (let dz = 5; dz < 200; dz += 12) {
+    const s1 = project(-60, skierZ + dz);
+    const s2 = project(60, skierZ + dz);
+    if (s1 && s2) { ctx.beginPath(); ctx.moveTo(s1.x, s1.y); ctx.lineTo(s2.x, s2.y); ctx.stroke(); }
+  }
+}
+
+function drawSkiTracks() {
+  if (trackHistory.length < 2) return;
+  const offsets = [-0.35, 0.35];
+  for (const off of offsets) {
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < trackHistory.length; i++) {
+      const pt = trackHistory[i];
+      const s = project(pt.x + off, pt.z);
+      if (!s) continue;
+      const alpha = i / trackHistory.length;
+      if (!started) { ctx.moveTo(s.x, s.y); started = true; }
+      else ctx.lineTo(s.x, s.y);
+    }
+    ctx.strokeStyle = 'rgba(170,195,220,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+function drawTree(obj) {
+  const s = project(obj.x, obj.z);
+  if (!s || s.x < -60 || s.x > W + 60) return;
+  const h = obj.height * s.scale;
+  const tw = Math.max(1, s.scale * 0.28);
+
+  // Trunk
+  ctx.fillStyle = `hsl(28,35%,${obj.tint}%)`;
+  ctx.fillRect(s.x - tw / 2, s.y - h * 0.22, tw, h * 0.22);
+
+  // Layered triangles
+  const layers = 3;
+  for (let l = 0; l < layers; l++) {
+    const t   = l / layers;
+    const bot = s.y - h * 0.22 - h * 0.78 * t;
+    const top = bot - h * 0.78 / layers * 1.25;
+    const hw  = s.scale * obj.height * 0.42 * (1 - t * 0.55);
+
+    ctx.fillStyle = `hsl(128,38%,${18 + l * 7}%)`;
+    ctx.beginPath(); ctx.moveTo(s.x, top); ctx.lineTo(s.x - hw, bot); ctx.lineTo(s.x + hw, bot); ctx.closePath(); ctx.fill();
+
+    // Snow on boughs
+    ctx.fillStyle = `hsl(210,30%,${obj.snowTint}%)`;
+    ctx.beginPath(); ctx.moveTo(s.x, top); ctx.lineTo(s.x - hw * 0.62, top + (bot - top) * 0.45); ctx.lineTo(s.x + hw * 0.62, top + (bot - top) * 0.45); ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawRock(obj) {
+  const s = project(obj.x, obj.z);
+  if (!s) return;
+  const rx = obj.r * s.scale, ry = obj.r * s.scale * 0.55;
+  ctx.fillStyle = '#7a7a82';
+  ctx.beginPath(); ctx.ellipse(s.x, s.y - ry * 0.5, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#aaaaaa';
+  ctx.beginPath(); ctx.ellipse(s.x - rx * 0.15, s.y - ry * 0.8, rx * 0.55, ry * 0.38, -0.3, 0, Math.PI * 2); ctx.fill();
+  // Snow cap
+  ctx.fillStyle = 'rgba(225,240,255,0.85)';
+  ctx.beginPath(); ctx.ellipse(s.x, s.y - ry * 0.9, rx * 0.65, ry * 0.28, 0, Math.PI, 0); ctx.fill();
+}
+
+function drawGate(obj) {
+  const lp = project(obj.x - 3.5, obj.z);
+  const rp = project(obj.x + 3.5, obj.z);
+  if (!lp || !rp) return;
+  for (const ps of [lp, rp]) {
+    const ph = 7 * ps.scale;
+    const pw = Math.max(1.5, ps.scale * 0.3);
+    ctx.fillStyle = '#eeeeee';
+    ctx.fillRect(ps.x - pw / 2, ps.y - ph, pw, ph);
+    // Flag
+    ctx.fillStyle = obj.color;
+    ctx.beginPath();
+    ctx.moveTo(ps.x, ps.y - ph);
+    ctx.lineTo(ps.x + ps.scale * 2.2, ps.y - ph + ps.scale);
+    ctx.lineTo(ps.x, ps.y - ph + ps.scale * 2);
+    ctx.closePath(); ctx.fill();
+  }
+  // Connecting line
+  ctx.strokeStyle = obj.color; ctx.lineWidth = Math.max(1, lp.scale * 0.15); ctx.globalAlpha = 0.5;
+  ctx.beginPath(); ctx.moveTo(lp.x, lp.y - 6 * lp.scale); ctx.lineTo(rp.x, rp.y - 6 * rp.scale); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const s = project(p.x, p.z);
+    if (!s) continue;
+    ctx.fillStyle = `rgba(220,235,255,${p.life * 0.75})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, p.size * s.scale * 4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawSkier() {
+  const tuck  = keys['ArrowUp']   || keys['w'];
+  const plow  = keys['ArrowDown'] || keys['s'];
+  const lean  = Math.max(-28, Math.min(28, skierVX * 2.2));
+
+  ctx.save();
+  ctx.translate(W / 2 + lean, SKIER_Y);
+
+  if (tuck) {
+    // Aerodynamic tuck
+    ctx.fillStyle = '#1a3a8a'; // body
+    ctx.beginPath(); ctx.ellipse(0, -16, 9, 13, 0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cc2222'; // helmet
+    ctx.beginPath(); ctx.arc(-1, -28, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffcc00'; // visor
+    ctx.beginPath(); ctx.arc(3, -27, 4.5, -0.6, 0.6); ctx.stroke ? ctx.stroke() : null;
+    ctx.fill();
+    ctx.strokeStyle = '#777'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-7, -14); ctx.lineTo(-14, 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(7, -14); ctx.lineTo(14, 8); ctx.stroke();
+    ctx.fillStyle = '#cc2222'; // skis
+    ctx.fillRect(-18, -3, 34, 4);
+    ctx.fillRect(-14, 1, 34, 4);
+  } else if (plow) {
+    // Snowplow stance
+    ctx.fillStyle = '#1a3a8a';
+    ctx.beginPath(); ctx.ellipse(0, -26, 11, 19, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cc2222';
+    ctx.beginPath(); ctx.arc(0, -45, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#777'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-11, -18); ctx.lineTo(-34, 12); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11, -18); ctx.lineTo(34, 12); ctx.stroke();
+    ctx.fillStyle = '#cc2222';
+    ctx.save(); ctx.rotate(-0.32);
+    ctx.fillRect(-3, -4, 36, 5);
+    ctx.restore();
+    ctx.save(); ctx.rotate(0.32);
+    ctx.fillRect(-33, -4, 36, 5);
+    ctx.restore();
+  } else {
+    // Normal stance
+    ctx.fillStyle = '#1a3a8a';
+    ctx.beginPath(); ctx.ellipse(0, -28, 11, 19, 0.12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#cc2222';
+    ctx.beginPath(); ctx.arc(2, -47, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#777'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-11, -22); ctx.lineTo(-26, 10); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11, -22); ctx.lineTo(26, 10); ctx.stroke();
+    ctx.fillStyle = '#cc2222';
+    ctx.fillRect(-19, -6, 37, 5);
+    ctx.fillRect(-13, -1, 37, 5);
+  }
+
+  // Pole tips (circles on ground)
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.arc(-26, 11, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(26, 11, 3, 0, Math.PI * 2); ctx.fill();
+
+  ctx.restore();
+
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0,0,80,0.15)';
+  ctx.beginPath(); ctx.ellipse(W / 2 + lean * 0.25, SKIER_Y + 8, 22, 7, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Speed blur at high speed
+  const spd = speed * 3.6;
+  if (spd > 55) {
+    const alpha = Math.min((spd - 55) / 50, 0.25);
+    const blurGrad = ctx.createLinearGradient(0, HORIZON_Y, 0, H);
+    blurGrad.addColorStop(0, `rgba(200,220,255,${alpha})`);
+    blurGrad.addColorStop(1, `rgba(200,220,255,0)`);
+    ctx.fillStyle = blurGrad;
+    ctx.fillRect(0, HORIZON_Y, W, H - HORIZON_Y);
+  }
+}
+
+function drawHUD() {
+  const spd = (speed * 3.6).toFixed(1);
+  const dist = distance.toFixed(0);
+
+  ctx.fillStyle = 'rgba(0,10,30,0.55)';
+  roundRect(ctx, 14, 14, 170, 90, 8); ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 32px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(spd, 22, 56);
+  ctx.font = '14px monospace';
+  ctx.fillStyle = '#88aacc';
+  ctx.fillText('km/h', 86, 56);
+  ctx.font = '13px monospace';
+  ctx.fillStyle = '#aaccff';
+  ctx.fillText(`↓ ${dist} m`, 22, 88);
+
+  // Speedometer bar
+  const barW = 142;
+  const fill = Math.min(speed / 25, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, 22, 96, barW, 6, 3); ctx.fill();
+  const barGrad = ctx.createLinearGradient(22, 0, 22 + barW, 0);
+  barGrad.addColorStop(0, '#44bbff');
+  barGrad.addColorStop(0.6, '#ffcc00');
+  barGrad.addColorStop(1, '#ff4422');
+  ctx.fillStyle = barGrad;
+  roundRect(ctx, 22, 96, barW * fill, 6, 3); ctx.fill();
+
+  // Stance label
+  const tuck = keys['ArrowUp'] || keys['w'];
+  const plow = keys['ArrowDown'] || keys['s'];
+  const label = tuck ? 'TUCK' : plow ? 'PLOW' : null;
+  if (label) {
+    ctx.fillStyle = 'rgba(0,10,30,0.55)';
+    roundRect(ctx, W - 110, 14, 96, 34, 6); ctx.fill();
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, W - 62, 36);
+    ctx.textAlign = 'left';
+  }
+}
+
+function drawStartScreen() {
+  drawSky(); drawSlope();
+  ctx.fillStyle = 'rgba(0,8,25,0.65)';
+  roundRect(ctx, W / 2 - 220, H / 2 - 120, 440, 240, 14); ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ddeeff';
+  ctx.font = 'bold 42px monospace';
+  ctx.fillText('SKI SIMULATOR', W / 2, H / 2 - 65);
+  ctx.font = '15px monospace';
+  ctx.fillStyle = '#88aacc';
+  ctx.fillText('← → steer   ↑ tuck (faster)   ↓ snowplow', W / 2, H / 2 - 20);
+  ctx.fillText('Dodge trees and rocks. Go as far as you can.', W / 2, H / 2 + 12);
+  ctx.fillStyle = '#ffdd44';
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText('Press SPACE to start', W / 2, H / 2 + 70);
+  ctx.textAlign = 'left';
+}
+
+function drawDeadScreen() {
+  ctx.fillStyle = 'rgba(0,0,0,0.52)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff4444';
+  ctx.font = 'bold 48px monospace';
+  ctx.fillText('CRASHED!', W / 2, H / 2 - 70);
+  ctx.font = '20px monospace';
+  ctx.fillStyle = '#ddeeff';
+  ctx.fillText(`Distance:  ${distance.toFixed(0)} m`, W / 2, H / 2 - 15);
+  ctx.fillText(`Top speed: ${(maxSpeed * 3.6).toFixed(1)} km/h`, W / 2, H / 2 + 22);
+  if (crashTimer > 1.2) {
+    ctx.fillStyle = '#ffdd44';
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText('Press SPACE to try again', W / 2, H / 2 + 80);
+  }
+  ctx.textAlign = 'left';
+}
+
+// Polyfill for ctx.roundRect
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.lineTo(x + w - r, y); c.arcTo(x + w, y, x + w, y + r, r);
+  c.lineTo(x + w, y + h - r); c.arcTo(x + w, y + h, x + w - r, y + h, r);
+  c.lineTo(x + r, y + h); c.arcTo(x, y + h, x, y + h - r, r);
+  c.lineTo(x, y + r); c.arcTo(x, y, x + r, y, r);
+  c.closePath();
+}
+
+// --- Main loop ---
+let lastTs = 0;
+function loop(ts) {
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+
+  if (state === 'dead') crashTimer += dt;
+  update(dt);
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (state === 'start') {
+    drawStartScreen();
+  } else {
+    drawSky();
+    drawSlope();
+    drawSkiTracks();
+
+    for (const obj of objects) {
+      const relZ = obj.z - skierZ;
+      if (relZ < -6 || relZ > 250) continue;
+      if (obj.type === 'tree')      drawTree(obj);
+      else if (obj.type === 'rock') drawRock(obj);
+      else if (obj.type === 'gate') drawGate(obj);
+    }
+
+    drawParticles();
+    drawSkier();
+    drawHUD();
+
+    if (state === 'dead') drawDeadScreen();
+  }
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(ts => { lastTs = ts; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
