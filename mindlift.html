@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MindLift — Depression Support (Prototype)</title>
+<style>
+  :root {
+    --bg: #f3f6fb;
+    --card: #ffffff;
+    --ink: #2b3a4a;
+    --muted: #6b7c8f;
+    --accent: #5b8def;
+    --accent-soft: #e8f0ff;
+    --good: #4caf93;
+    --warn: #e0574f;
+    --shadow: 0 6px 20px rgba(40, 70, 120, 0.08);
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+    padding-bottom: 90px;
+  }
+  header {
+    background: linear-gradient(135deg, #6fa0ff, #8f7bf0);
+    color: #fff;
+    padding: 28px 20px 22px;
+    text-align: center;
+  }
+  header h1 { margin: 0 0 4px; font-size: 1.6rem; letter-spacing: 0.5px; }
+  header p { margin: 0; opacity: 0.9; font-size: 0.9rem; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 18px 16px; }
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 1.15rem; }
+  .card .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
+  .moods { display: flex; justify-content: space-between; gap: 6px; }
+  .mood-btn {
+    flex: 1; border: none; background: var(--accent-soft);
+    border-radius: 12px; padding: 12px 4px; font-size: 1.6rem;
+    cursor: pointer; transition: transform .12s, background .12s; position: relative;
+  }
+  .mood-btn .lbl { display:block; font-size:0.62rem; color: var(--muted); margin-top:4px; }
+  .mood-btn:hover { transform: translateY(-2px); }
+  .mood-btn.sel { background: var(--accent); color:#fff; }
+  .mood-btn.sel .lbl { color: #eaf1ff; }
+  textarea, input[type=text] {
+    width: 100%; border: 1px solid #dde5ef; border-radius: 10px;
+    padding: 10px 12px; font-family: inherit; font-size: 0.95rem; resize: vertical;
+    color: var(--ink);
+  }
+  textarea:focus, input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  label.field { display:block; font-size:0.85rem; font-weight:600; margin: 12px 0 5px; }
+  .btn {
+    background: var(--accent); color:#fff; border:none; border-radius: 10px;
+    padding: 11px 18px; font-size: 0.95rem; font-weight:600; cursor:pointer; margin-top:14px;
+  }
+  .btn:hover { filter: brightness(1.05); }
+  .btn.ghost { background: var(--accent-soft); color: var(--accent); }
+  .pill-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .pill {
+    background: #f0f3f8; border:1px solid #e1e8f1; border-radius: 999px;
+    padding: 6px 12px; font-size: 0.8rem; cursor:pointer;
+  }
+  .pill.done { background: var(--good); color:#fff; border-color: var(--good); }
+  .log { font-size: 0.85rem; color: var(--muted); margin-top: 12px; max-height: 160px; overflow:auto; }
+  .log .entry { padding: 8px 0; border-bottom: 1px dashed #e3e9f1; }
+  .log .entry:last-child { border-bottom: none; }
+  .trend { display:flex; align-items:flex-end; gap:5px; height:60px; margin-top:10px; }
+  .trend .bar { flex:1; background: var(--accent); border-radius: 4px 4px 0 0; min-height:4px; opacity:.85; }
+  .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+  /* Crisis */
+  .crisis-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--warn);
+    color:#fff; text-align:center; padding: 14px; font-weight:600; cursor:pointer;
+    box-shadow: 0 -4px 16px rgba(224,87,79,.3); z-index: 50;
+  }
+  .modal-bg {
+    position: fixed; inset:0; background: rgba(30,40,60,.55); display:none;
+    align-items:center; justify-content:center; padding:18px; z-index:100;
+  }
+  .modal-bg.open { display:flex; }
+  .modal {
+    background:#fff; border-radius: var(--radius); max-width:420px; width:100%;
+    padding: 24px; max-height: 90vh; overflow:auto;
+  }
+  .modal h2 { margin-top:0; color: var(--warn); }
+  .modal a { color: var(--accent); font-weight:600; text-decoration:none; }
+  .resource { background:#fdf1f0; border-radius:10px; padding:12px 14px; margin:10px 0; }
+  .resource strong { display:block; font-size:1.05rem; }
+  .x { float:right; cursor:pointer; color:var(--muted); font-size:1.3rem; line-height:1; }
+  .disclaimer { font-size: 0.72rem; color: var(--muted); text-align:center; padding: 6px 20px 0; }
+  .toast {
+    position: fixed; bottom: 70px; left:50%; transform: translateX(-50%);
+    background: var(--ink); color:#fff; padding: 10px 18px; border-radius: 999px;
+    font-size: 0.85rem; opacity:0; transition: opacity .3s; pointer-events:none; z-index: 60;
+  }
+  .toast.show { opacity: 0.95; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌤️ MindLift</h1>
+  <p>An evidence-based daily companion — prototype</p>
+</header>
+
+<div class="wrap">
+
+  <!-- MOOD CHECK-IN -->
+  <div class="card">
+    <h2>How are you feeling right now?</h2>
+    <div class="sub">A quick daily check-in (self-monitoring is a core CBT skill).</div>
+    <div class="moods" id="moods">
+      <button class="mood-btn" data-v="1">😞<span class="lbl">Very low</span></button>
+      <button class="mood-btn" data-v="2">😕<span class="lbl">Low</span></button>
+      <button class="mood-btn" data-v="3">😐<span class="lbl">Okay</span></button>
+      <button class="mood-btn" data-v="4">🙂<span class="lbl">Good</span></button>
+      <button class="mood-btn" data-v="5">😄<span class="lbl">Great</span></button>
+    </div>
+    <label class="field" for="moodNote">Anything you want to note? (optional)</label>
+    <textarea id="moodNote" rows="2" placeholder="What's on your mind…"></textarea>
+    <button class="btn" id="saveMood">Save check-in</button>
+    <div class="trend" id="trend"></div>
+    <div class="empty" id="trendEmpty">Your mood trend will appear here.</div>
+  </div>
+
+  <!-- BEHAVIORAL ACTIVATION -->
+  <div class="card">
+    <h2>One small step today</h2>
+    <div class="sub">Behavioral Activation: action first, motivation follows.</div>
+    <div class="pill-row" id="activities">
+      <span class="pill" data-a="Step outside for 5 min">🚶 Step outside</span>
+      <span class="pill" data-a="Message a friend">💬 Message a friend</span>
+      <span class="pill" data-a="Drink some water">💧 Water</span>
+      <span class="pill" data-a="Tidy one small thing">🧹 Tidy one thing</span>
+      <span class="pill" data-a="Stretch for 2 min">🤸 Stretch</span>
+      <span class="pill" data-a="Listen to a song">🎵 A song</span>
+    </div>
+    <div class="empty" id="actDone" style="margin-top:12px;">Tap one when you've done it — small wins count.</div>
+  </div>
+
+  <!-- THOUGHT RECORD (CBT) -->
+  <div class="card">
+    <h2>Thought record</h2>
+    <div class="sub">Notice a negative thought → examine it → reframe it (CBT).</div>
+    <label class="field" for="situation">Situation</label>
+    <input type="text" id="situation" placeholder="What happened?">
+    <label class="field" for="thought">Automatic thought</label>
+    <input type="text" id="thought" placeholder="What went through your mind?">
+    <label class="field" for="evidence">Evidence it might not be fully true</label>
+    <textarea id="evidence" rows="2" placeholder="Facts that don't fit the thought…"></textarea>
+    <label class="field" for="reframe">A more balanced thought</label>
+    <textarea id="reframe" rows="2" placeholder="A kinder, fairer way to see it…"></textarea>
+    <button class="btn" id="saveThought">Save thought record</button>
+    <div class="log" id="thoughtLog"></div>
+  </div>
+
+  <!-- GRATITUDE -->
+  <div class="card">
+    <h2>Three good things</h2>
+    <div class="sub">A positive-psychology habit linked to better mood.</div>
+    <input type="text" id="g1" placeholder="1. Something good today…">
+    <input type="text" id="g2" placeholder="2. Something good today…" style="margin-top:8px;">
+    <input type="text" id="g3" placeholder="3. Something good today…" style="margin-top:8px;">
+    <button class="btn" id="saveGrat">Save gratitude</button>
+    <div class="log" id="gratLog"></div>
+  </div>
+
+  <button class="btn ghost" id="resetAll" style="width:100%;">Clear all my data (stored only on this device)</button>
+  <div class="disclaimer">
+    Prototype only — not a medical device and not a substitute for professional care.
+    All data stays in your browser (localStorage). If you're in danger, call your local emergency number.
+  </div>
+</div>
+
+<!-- CRISIS -->
+<div class="crisis-bar" id="crisisBar">🆘 Need help now? Tap for crisis support</div>
+
+<div class="modal-bg" id="crisisModal">
+  <div class="modal">
+    <span class="x" id="closeCrisis">×</span>
+    <h2>You're not alone</h2>
+    <p>If you're having thoughts of harming yourself, please reach out right now.
+       Talking to someone helps.</p>
+    <div class="resource">
+      <strong>Call or text 988</strong>
+      988 Suicide &amp; Crisis Lifeline (US) — 24/7, free and confidential.
+      <a href="tel:988">Call 988</a>
+    </div>
+    <div class="resource">
+      <strong>Text HOME to 741741</strong>
+      Crisis Text Line (US/Canada) — text with a trained counselor.
+    </div>
+    <div class="resource">
+      <strong>Emergency: 911</strong>
+      If you're in immediate danger, call your local emergency number.
+    </div>
+    <p style="font-size:0.8rem;color:var(--muted);">
+      Outside the US? Find a helpline at
+      <a href="https://findahelpline.com" target="_blank" rel="noopener">findahelpline.com</a>.
+    </p>
+    <button class="btn" id="safetyPlanBtn" style="width:100%;">Open a simple safety plan</button>
+    <div id="safetyPlan" style="display:none; margin-top:14px;">
+      <label class="field">Warning signs I notice</label>
+      <input type="text" id="sp1" placeholder="e.g., withdrawing, hopeless thoughts">
+      <label class="field">People I can reach out to</label>
+      <input type="text" id="sp2" placeholder="Name & number">
+      <label class="field">Things that help me feel safer</label>
+      <input type="text" id="sp3" placeholder="e.g., go for a walk, call a friend">
+      <button class="btn" id="saveSafety" style="width:100%;">Save my safety plan</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const store = {
+    get(k, d) { try { return JSON.parse(localStorage.getItem('ml_'+k)) ?? d; } catch { return d; } },
+    set(k, v) { localStorage.setItem('ml_'+k, JSON.stringify(v)); }
+  };
+  const $ = s => document.querySelector(s);
+  let selectedMood = null;
+
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1800);
+  }
+
+  // ---- Mood ----
+  document.querySelectorAll('.mood-btn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.mood-btn').forEach(x => x.classList.remove('sel'));
+    b.classList.add('sel'); selectedMood = +b.dataset.v;
+  }));
+  $('#saveMood').addEventListener('click', () => {
+    if (!selectedMood) { toast('Pick how you feel first 🙂'); return; }
+    const moods = store.get('moods', []);
+    moods.push({ v: selectedMood, note: $('#moodNote').value.trim(), t: Date.now() });
+    store.set('moods', moods);
+    $('#moodNote').value = ''; selectedMood = null;
+    document.querySelectorAll('.mood-btn').forEach(x => x.classList.remove('sel'));
+    renderTrend(); toast('Check-in saved ✓');
+  });
+  function renderTrend() {
+    const moods = store.get('moods', []).slice(-14);
+    const trend = $('#trend'), empty = $('#trendEmpty');
+    trend.innerHTML = '';
+    if (!moods.length) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    moods.forEach(m => {
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.style.height = (m.v / 5 * 100) + '%';
+      bar.title = new Date(m.t).toLocaleDateString() + ' — ' + m.v + '/5';
+      trend.appendChild(bar);
+    });
+  }
+
+  // ---- Activities ----
+  document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => {
+    p.classList.toggle('done');
+    const done = [...document.querySelectorAll('.pill.done')].length;
+    $('#actDone').textContent = done ? `Nice — ${done} small win${done>1?'s':''} today 🎉` : 'Tap one when you’ve done it — small wins count.';
+  }));
+
+  // ---- Thought record ----
+  $('#saveThought').addEventListener('click', () => {
+    const t = { situation: $('#situation').value.trim(), thought: $('#thought').value.trim(),
+                evidence: $('#evidence').value.trim(), reframe: $('#reframe').value.trim(), ts: Date.now() };
+    if (!t.thought) { toast('Add at least the thought'); return; }
+    const logs = store.get('thoughts', []); logs.push(t); store.set('thoughts', logs);
+    ['#situation','#thought','#evidence','#reframe'].forEach(s => $(s).value = '');
+    renderThoughts(); toast('Reframed and saved 💭');
+  });
+  function renderThoughts() {
+    const logs = store.get('thoughts', []).slice().reverse();
+    const el = $('#thoughtLog');
+    el.innerHTML = logs.length ? '' : '<span class="empty">Saved thought records appear here.</span>';
+    logs.forEach(t => {
+      const d = document.createElement('div'); d.className = 'entry';
+      d.innerHTML = `<strong>${esc(t.thought)}</strong><br>→ ${esc(t.reframe || '(no reframe yet)')}
+                     <span style="opacity:.6"> · ${new Date(t.ts).toLocaleDateString()}</span>`;
+      el.appendChild(d);
+    });
+  }
+
+  // ---- Gratitude ----
+  $('#saveGrat').addEventListener('click', () => {
+    const items = [$('#g1').value, $('#g2').value, $('#g3').value].map(s => s.trim()).filter(Boolean);
+    if (!items.length) { toast('Add at least one good thing'); return; }
+    const logs = store.get('gratitude', []); logs.push({ items, ts: Date.now() }); store.set('gratitude', logs);
+    ['#g1','#g2','#g3'].forEach(s => $(s).value = '');
+    renderGrat(); toast('Gratitude saved 🌱');
+  });
+  function renderGrat() {
+    const logs = store.get('gratitude', []).slice().reverse();
+    const el = $('#gratLog');
+    el.innerHTML = logs.length ? '' : '<span class="empty">Your gratitude entries appear here.</span>';
+    logs.forEach(g => {
+      const d = document.createElement('div'); d.className = 'entry';
+      d.innerHTML = g.items.map(esc).join(' · ') + `<span style="opacity:.6"> · ${new Date(g.ts).toLocaleDateString()}</span>`;
+      el.appendChild(d);
+    });
+  }
+
+  // ---- Crisis ----
+  $('#crisisBar').addEventListener('click', () => $('#crisisModal').classList.add('open'));
+  $('#closeCrisis').addEventListener('click', () => $('#crisisModal').classList.remove('open'));
+  $('#crisisModal').addEventListener('click', e => { if (e.target.id === 'crisisModal') e.currentTarget.classList.remove('open'); });
+  $('#safetyPlanBtn').addEventListener('click', () => {
+    const sp = $('#safetyPlan'); sp.style.display = sp.style.display === 'none' ? 'block' : 'none';
+    const saved = store.get('safety', {});
+    $('#sp1').value = saved.signs || ''; $('#sp2').value = saved.people || ''; $('#sp3').value = saved.helps || '';
+  });
+  $('#saveSafety').addEventListener('click', () => {
+    store.set('safety', { signs: $('#sp1').value, people: $('#sp2').value, helps: $('#sp3').value });
+    toast('Safety plan saved 🛡️');
+  });
+
+  // ---- Risk nudge: if recent mood very low, gently surface crisis support ----
+  function maybeNudge() {
+    const moods = store.get('moods', []);
+    if (moods.length && moods[moods.length - 1].v === 1) {
+      setTimeout(() => toast('It looks really hard right now. Support is one tap away ↓'), 700);
+    }
+  }
+  $('#saveMood').addEventListener('click', maybeNudge);
+
+  // ---- Reset ----
+  $('#resetAll').addEventListener('click', () => {
+    if (confirm('Clear all check-ins, thought records, gratitude and safety plan from this device?')) {
+      ['moods','thoughts','gratitude','safety'].forEach(k => localStorage.removeItem('ml_'+k));
+      renderTrend(); renderThoughts(); renderGrat(); toast('Cleared');
+    }
+  });
+
+  function esc(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  renderTrend(); renderThoughts(); renderGrat();
+</script>
+</body>
+</html>
