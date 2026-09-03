@@ -1,1 +1,7 @@
 node_modules/
+
+# TikTok clone runtime state (regenerated on boot / by users at runtime)
+tiktok/data/db.json
+tiktok/data/*.corrupt.*
+tiktok/public/uploads/*
+!tiktok/public/uploads/.gitkeep

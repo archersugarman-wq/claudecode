@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TikTok</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <a href="#/" class="brand" data-nav>
+      <span class="brand-mark">♪</span><span class="brand-name">TikTok</span>
+    </a>
+    <form id="topbar-search-form" class="topbar-search">
+      <input id="topbar-search-input" type="search" placeholder="Search" autocomplete="off">
+      <button type="submit" id="topbar-search-btn" aria-label="Search"></button>
+    </form>
+    <a href="#/upload" class="topbar-icon-btn" id="topbar-upload-btn" data-nav aria-label="Upload"></a>
+  </header>
+
+  <nav class="sidebar" id="sidebar"></nav>
+
+  <main id="view-root" tabindex="-1"></main>
+
+  <nav class="bottom-tabs" id="bottom-tabs"></nav>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-host"></div>
+
+<script src="/helpers.js"></script>
+<script src="/icons.js"></script>
+<script src="/api.js"></script>
+<script src="/canvas-video.js"></script>
+<script src="/views/comments-drawer.js"></script>
+<script src="/views/feed.js"></script>
+<script src="/views/profile.js"></script>
+<script src="/views/upload.js"></script>
+<script src="/views/search.js"></script>
+<script src="/views/notifications.js"></script>
+<script src="/views/auth.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
