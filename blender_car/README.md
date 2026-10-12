@@ -29,3 +29,15 @@ Options: `--cam hero|side|front|rear|wheel`, `--sun <azimuth deg>`, `--sunel <de
   superellipse loft, so it has no hand-sculpted panel creases, no real light internals, no badges or
   lettering, and the tyre tread is only a groove profile plus bump noise.
 - Not a copy of any real car design.
+
+## Roblox
+
+`export_roblox.py` converts the scene into `roblox_export/SportsCar.fbx` (9 MeshParts, each under 17k triangles,
+baked colour textures embedded; 1 stud = 0.28 m, ~16 studs long, faces -Z). `CarAssembly.server.luau` welds
+the parts, adds invisible cylinder wheel colliders, hinge motors/steering and a VehicleSeat.
+
+I could not open Studio from the cloud session, so the FBX import and the Luau script are **untested in
+Studio**. I did re-import the FBX into Blender to check scale, orientation and textures.
+Import with File > Import 3D (as a Model), then follow the header comment in the Luau file.
+Known losses: no metallic / clear-coat / glass refraction, jagged roof-frame edges, and the avatar only
+fits after `CAR_SCALE` enlargement.

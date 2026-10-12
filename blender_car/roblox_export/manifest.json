@@ -1,0 +1,138 @@
+{
+  "Details": {
+    "tris": 9000,
+    "bbox_blender_studs_min": [
+      -3.72,
+      -8.11,
+      0.54
+    ],
+    "bbox_blender_studs_max": [
+      3.72,
+      8.18,
+      3.34
+    ]
+  },
+  "Interior": {
+    "tris": 3500,
+    "bbox_blender_studs_min": [
+      -2.16,
+      -4.11,
+      1.11
+    ],
+    "bbox_blender_studs_max": [
+      2.16,
+      3.04,
+      3.67
+    ]
+  },
+  "Body": {
+    "tris": 17000,
+    "bbox_blender_studs_min": [
+      -3.52,
+      -8.07,
+      0.5
+    ],
+    "bbox_blender_studs_max": [
+      3.52,
+      8.07,
+      3.34
+    ]
+  },
+  "CabinFrame": {
+    "tris": 3500,
+    "bbox_blender_studs_min": [
+      -2.39,
+      -4.41,
+      2.95
+    ],
+    "bbox_blender_studs_max": [
+      2.39,
+      2.64,
+      4.17
+    ]
+  },
+  "CabinGlass": {
+    "tris": 3499,
+    "bbox_blender_studs_min": [
+      -2.85,
+      -5.36,
+      1.97
+    ],
+    "bbox_blender_studs_max": [
+      2.85,
+      3.75,
+      3.9
+    ]
+  },
+  "Wheel_FR": {
+    "tris": 5500,
+    "bbox_blender_studs_min": [
+      2.34,
+      3.59,
+      -0.0
+    ],
+    "bbox_blender_studs_max": [
+      3.33,
+      6.05,
+      2.46
+    ]
+  },
+  "Wheel_RR": {
+    "tris": 5499,
+    "bbox_blender_studs_min": [
+      2.29,
+      -6.05,
+      -0.0
+    ],
+    "bbox_blender_studs_max": [
+      3.39,
+      -3.59,
+      2.46
+    ]
+  },
+  "Wheel_FL": {
+    "tris": 5500,
+    "bbox_blender_studs_min": [
+      -3.33,
+      3.59,
+      -0.0
+    ],
+    "bbox_blender_studs_max": [
+      -2.34,
+      6.05,
+      2.46
+    ]
+  },
+  "Wheel_RL": {
+    "tris": 5500,
+    "bbox_blender_studs_min": [
+      -3.39,
+      -6.05,
+      -0.0
+    ],
+    "bbox_blender_studs_max": [
+      -2.29,
+      -3.59,
+      2.46
+    ]
+  },
+  "_reimport": {
+    "objects": [
+      "Body",
+      "CabinFrame",
+      "CabinGlass",
+      "Details",
+      "Interior",
+      "Wheel_FL",
+      "Wheel_FR",
+      "Wheel_RL",
+      "Wheel_RR"
+    ],
+    "extent_xyz_blender_axes": [
+      7.44,
+      16.29,
+      4.17
+    ],
+    "note": "after re-import Blender is Z-up: X=width, Y=length, Z=height (studs)"
+  }
+}
