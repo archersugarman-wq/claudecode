@@ -8,8 +8,8 @@
 --   2. Rename the Model to "SportsCar" and put it in Workspace, sitting upright, not rotated.
 --   3. Put THIS file in ServerScriptService as a Script (RunContext = Legacy or Server) and press Play.
 --
--- The car faces -Z (VehicleSeat forward), right side is +X. The FBX is 1 stud = 0.28 m, so the car is
--- ~16 studs long. A Roblox avatar is ~5 studs tall and the cabin is only ~2.8 studs high at that
+-- The car faces -Z (VehicleSeat forward), right side is +X. The car is meant to be ~16 studs long (1 stud =
+-- 0.28 m); the script rescales whatever size Studio imported to that. A Roblox avatar is ~5 studs tall and the cabin is only ~2.8 studs high at that
 -- size, so CAR_SCALE enlarges the whole car; lower it if you want the original proportions.
 
 local RunService = game:GetService("RunService")
@@ -22,8 +22,10 @@ local DRIVE_SIGN = 1         -- flip to -1 if the car drives backwards on W
 local STEER_SIGN = 1         -- flip to -1 if steering is mirrored
 
 local STUD = 1 / 0.28
-local WHEEL_R_BLENDER = 0.345 * STUD   -- studs before CAR_SCALE
-local WHEEL_W_BLENDER = 1.02
+-- The FBX stores geometry in centimetre-style units (~1614 across, i.e. 100x the intended 16.14 studs).
+-- Depending on the importer's unit setting the car can land 1x or 100x too big, so the script measures the
+-- real length and rescales to this target instead of trusting the import scale.
+local TARGET_LENGTH_STUDS = 16.14   -- body length at CAR_SCALE = 1
 
 local model = workspace:WaitForChild("SportsCar") :: Model
 local function find(name: string): BasePart
@@ -34,11 +36,16 @@ end
 
 local body = find("Body")
 model.PrimaryPart = body
-if CAR_SCALE ~= 1 then
-	model:ScaleTo(CAR_SCALE)
+-- body length is its longest side (the car is axis-aligned on import, so Size.Z)
+local importedLength = math.max(body.Size.X, body.Size.Y, body.Size.Z)
+local fix = TARGET_LENGTH_STUDS * CAR_SCALE / importedLength
+if math.abs(fix - 1) > 1e-3 then
+	model:ScaleTo(model:GetScale() * fix)
 end
-local wheelR = WHEEL_R_BLENDER * CAR_SCALE
-local wheelW = WHEEL_W_BLENDER * CAR_SCALE
+-- measure the wheel from the (now correctly scaled) mesh: axle is along X, tyre is round in Y/Z
+local wheelRef = find("Wheel_FL")
+local wheelR = wheelRef.Size.Y / 2
+local wheelW = wheelRef.Size.X
 
 -- ---------------------------------------------------------------- parts & materials
 local wheelNames = { "Wheel_FL", "Wheel_FR", "Wheel_RL", "Wheel_RR" }
@@ -58,11 +65,13 @@ for _, d in model:GetDescendants() do
 end
 body.Massless = false
 body.CanCollide = true
-body.CollisionFidelity = Enum.CollisionFidelity.Hull
+local bodyMesh = body :: MeshPart
+bodyMesh.CollisionFidelity = Enum.CollisionFidelity.Hull
 body.CustomPhysicalProperties = PhysicalProperties.new(0.35, 0.4, 0.1, 1, 1)
 
 local glass = find("CabinGlass")
 glass.Material = Enum.Material.Glass
+glass.Color = Color3.fromRGB(8, 10, 12) -- the FBX glass has no texture, so it imports light grey
 glass.Transparency = 0.55
 glass.Reflectance = 0.1
 glass.CastShadow = false
@@ -131,6 +140,12 @@ for _, n in wheelNames do
 	col.CustomPhysicalProperties = PhysicalProperties.new(0.7, 1.4, 0.05, 1, 1)
 	col.Parent = model
 	weld(col, mesh)
+
+	-- the body hull fills the wheel arches, so without this the wheel colliders fight the body every frame
+	local nc = Instance.new("NoCollisionConstraint")
+	nc.Part0 = body
+	nc.Part1 = col
+	nc.Parent = col
 
 	local alongX = CFrame.identity
 	local alongY = CFrame.Angles(0, 0, math.rad(90)) -- maps the attachment X axis (hinge axis) onto world Y
