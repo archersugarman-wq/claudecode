@@ -1,11 +1,13 @@
 --!strict
 -- CarAssembly: turns the imported SportsCar model into a drivable vehicle.
--- NOT TESTED IN STUDIO (written without access to Studio). Expect to tweak the constants below.
+-- Tested in Studio: drives, steers and reverses (driven via seat Throttle/Steer inputs).
 --
 -- Setup
---   1. Studio: File > Import 3D > roblox_export/SportsCar.fbx, import as a Model (keep textures on).
+--   1. Studio: File > Import 3D > roblox_export/SportsCar.fbx, import as a Model (name SportsCar).
 --      Expected children: Body, CabinGlass, CabinFrame, Details, Interior, Wheel_FL/FR/RL/RR.
---   2. Rename the Model to "SportsCar" and put it in Workspace, sitting upright, not rotated.
+--   2. The import arrives 100x too big and facing +Z. In the Command Bar run:
+--        local m = workspace.SportsCar; m:ScaleTo(0.01); m:PivotTo(CFrame.new(0, 0.5, 0) * CFrame.Angles(0, math.pi, 0))
+--      (pivot is at ground level under the wheel centroid, so this sits it on a flat floor facing -Z).
 --   3. Put THIS file in ServerScriptService as a Script (RunContext = Legacy or Server) and press Play.
 --
 -- The car faces -Z (VehicleSeat forward), right side is +X. The FBX is 1 stud = 0.28 m, so the car is
@@ -16,9 +18,9 @@ local RunService = game:GetService("RunService")
 
 local CAR_SCALE = 1.6        -- uniform scale applied to the imported model
 local MAX_SPEED = 90         -- studs/s at full throttle
-local MOTOR_TORQUE = 6e5
+local MOTOR_TORQUE = 3e4
 local MAX_STEER_DEG = 28
-local DRIVE_SIGN = 1         -- flip to -1 if the car drives backwards on W
+local DRIVE_SIGN = -1        -- verified in Studio: -1 makes W drive forward (-Z)
 local STEER_SIGN = 1         -- flip to -1 if steering is mirrored
 
 local STUD = 1 / 0.28
@@ -35,7 +37,7 @@ end
 local body = find("Body")
 model.PrimaryPart = body
 if CAR_SCALE ~= 1 then
-	model:ScaleTo(CAR_SCALE)
+	model:ScaleTo(model:GetScale() * CAR_SCALE)
 end
 local wheelR = WHEEL_R_BLENDER * CAR_SCALE
 local wheelW = WHEEL_W_BLENDER * CAR_SCALE
@@ -58,7 +60,7 @@ for _, d in model:GetDescendants() do
 end
 body.Massless = false
 body.CanCollide = true
-body.CollisionFidelity = Enum.CollisionFidelity.Hull
+-- CollisionFidelity is not writable from scripts; set it on Body in Studio (edit mode) instead
 body.CustomPhysicalProperties = PhysicalProperties.new(0.35, 0.4, 0.1, 1, 1)
 
 local glass = find("CabinGlass")
@@ -110,7 +112,8 @@ local wheels: { Wheel } = {}
 
 local function attachment(parent: BasePart, worldPos: Vector3, rot: CFrame): Attachment
 	local a = Instance.new("Attachment")
-	a.CFrame = (parent.CFrame:Inverse() * CFrame.new(worldPos)) * rot
+	-- rot is a WORLD orientation: Body is rotated 180 degrees in the world, so a part-local rot would flip hinge axes
+	a.CFrame = parent.CFrame:Inverse() * (CFrame.new(worldPos) * rot)
 	a.Parent = parent
 	return a
 end
@@ -128,9 +131,14 @@ for _, n in wheelNames do
 	col.CFrame = CFrame.new(pos)
 	col.Transparency = 1
 	col.CanCollide = true
-	col.CustomPhysicalProperties = PhysicalProperties.new(0.7, 1.4, 0.05, 1, 1)
+	col.CustomPhysicalProperties = PhysicalProperties.new(0.4, 1.4, 0.05, 1, 1)
 	col.Parent = model
 	weld(col, mesh)
+	-- hinged parts still collide with each other: without this the wheel cylinders fight the body hull
+	local nc = Instance.new("NoCollisionConstraint")
+	nc.Part0 = body
+	nc.Part1 = col
+	nc.Parent = col
 
 	local alongX = CFrame.identity
 	local alongY = CFrame.Angles(0, 0, math.rad(90)) -- maps the attachment X axis (hinge axis) onto world Y
@@ -138,12 +146,12 @@ for _, n in wheelNames do
 	if front then
 		local knuckle = Instance.new("Part")
 		knuckle.Name = n .. "_Knuckle"
-		knuckle.Size = Vector3.one * 0.4
+		knuckle.Size = Vector3.one * 1
 		knuckle.CFrame = CFrame.new(pos)
 		knuckle.Transparency = 1
 		knuckle.CanCollide = false
 		knuckle.Massless = false
-		knuckle.CustomPhysicalProperties = PhysicalProperties.new(0.1, 0, 0, 1, 1)
+		knuckle.CustomPhysicalProperties = PhysicalProperties.new(2, 0, 0, 1, 1)
 		knuckle.Parent = model
 
 		local servo = Instance.new("HingeConstraint")
@@ -162,7 +170,7 @@ for _, n in wheelNames do
 		motor.Attachment0 = attachment(knuckle, pos, alongX)
 		motor.Attachment1 = attachment(col, pos, alongX)
 		motor.MotorMaxTorque = MOTOR_TORQUE
-		motor.MotorMaxAcceleration = 400
+		motor.MotorMaxAcceleration = 60
 		motor.Parent = col
 		table.insert(wheels, { motor = motor, servo = servo })
 	else
@@ -171,7 +179,7 @@ for _, n in wheelNames do
 		motor.Attachment0 = attachment(body, pos, alongX)
 		motor.Attachment1 = attachment(col, pos, alongX)
 		motor.MotorMaxTorque = MOTOR_TORQUE
-		motor.MotorMaxAcceleration = 400
+		motor.MotorMaxAcceleration = 60
 		motor.Parent = col
 		table.insert(wheels, { motor = motor, servo = nil })
 	end
@@ -182,10 +190,13 @@ RunService.Heartbeat:Connect(function()
 	local throttle = seat.ThrottleFloat
 	local steer = seat.SteerFloat
 	local w = DRIVE_SIGN * throttle * MAX_SPEED / wheelR
+	-- full lock at speed spins the car, so the steering lock shrinks as speed rises
+	local speed = body.AssemblyLinearVelocity.Magnitude
+	local lock = MAX_STEER_DEG * math.clamp(1 - 0.8 * speed / MAX_SPEED, 0.2, 1)
 	for _, wh in wheels do
 		wh.motor.AngularVelocity = w
 		if wh.servo then
-			wh.servo.TargetAngle = STEER_SIGN * -steer * MAX_STEER_DEG
+			wh.servo.TargetAngle = STEER_SIGN * -steer * lock
 		end
 	end
 end)
