@@ -1,6 +1,6 @@
 {
   "Details": {
-    "tris": 9000,
+    "tris": 8999,
     "bbox_blender_studs_min": [
       -3.72,
       -8.11,
@@ -17,7 +17,7 @@
     "bbox_blender_studs_min": [
       -2.16,
       -4.11,
-      1.11
+      1.07
     ],
     "bbox_blender_studs_max": [
       2.16,
@@ -39,37 +39,37 @@
     ]
   },
   "CabinFrame": {
-    "tris": 3500,
+    "tris": 9130,
     "bbox_blender_studs_min": [
-      -2.39,
-      -4.41,
-      2.95
+      -2.86,
+      -5.36,
+      2.13
     ],
     "bbox_blender_studs_max": [
-      2.39,
-      2.64,
-      4.17
+      2.86,
+      3.75,
+      4.64
     ]
   },
   "CabinGlass": {
-    "tris": 3499,
+    "tris": 3468,
     "bbox_blender_studs_min": [
-      -2.85,
-      -5.36,
-      1.97
+      -2.86,
+      -5.12,
+      2.94
     ],
     "bbox_blender_studs_max": [
-      2.85,
-      3.75,
-      3.9
+      2.86,
+      3.24,
+      4.46
     ]
   },
   "Wheel_FR": {
-    "tris": 5500,
+    "tris": 13036,
     "bbox_blender_studs_min": [
       2.34,
       3.59,
-      -0.0
+      0.0
     ],
     "bbox_blender_studs_max": [
       3.33,
@@ -78,11 +78,11 @@
     ]
   },
   "Wheel_RR": {
-    "tris": 5499,
+    "tris": 13036,
     "bbox_blender_studs_min": [
       2.29,
       -6.05,
-      -0.0
+      0.0
     ],
     "bbox_blender_studs_max": [
       3.39,
@@ -91,11 +91,11 @@
     ]
   },
   "Wheel_FL": {
-    "tris": 5500,
+    "tris": 13036,
     "bbox_blender_studs_min": [
       -3.33,
       3.59,
-      -0.0
+      0.0
     ],
     "bbox_blender_studs_max": [
       -2.34,
@@ -104,11 +104,11 @@
     ]
   },
   "Wheel_RL": {
-    "tris": 5500,
+    "tris": 13036,
     "bbox_blender_studs_min": [
       -3.39,
       -6.05,
-      -0.0
+      0.0
     ],
     "bbox_blender_studs_max": [
       -2.29,
@@ -131,7 +131,7 @@
     "extent_xyz_blender_axes": [
       7.44,
       16.29,
-      4.17
+      4.64
     ],
     "note": "after re-import Blender is Z-up: X=width, Y=length, Z=height (studs)"
   }
