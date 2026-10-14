@@ -1,6 +1,7 @@
 --!strict
 -- CarAssembly: turns the imported SportsCar model into a drivable vehicle.
--- Tested in Studio: drives, steers and reverses (driven via seat Throttle/Steer inputs).
+-- Tested in Studio: W/A/S/D drive, steer and reverse. Walk up and press E ("Drive") to get in, Space to get out;
+-- the driver sees a mph speedometer.
 --
 -- Setup
 --   1. Studio: File > Import 3D > roblox_export/SportsCar.fbx, import as a Model (name SportsCar).
@@ -64,9 +65,11 @@ body.CanCollide = true
 body.CustomPhysicalProperties = PhysicalProperties.new(0.35, 0.4, 0.1, 1, 1)
 
 local glass = find("CabinGlass")
+-- dark tinted glass, like the Blender render (the FBX glass has no texture)
 glass.Material = Enum.Material.Glass
-glass.Transparency = 0.55
-glass.Reflectance = 0.1
+glass.Color = Color3.fromRGB(28, 34, 40)
+glass.Transparency = 0.35
+glass.Reflectance = 0.15
 glass.CastShadow = false
 
 local function weld(a: BasePart, b: BasePart)
@@ -86,12 +89,16 @@ local function fromBlender(x: number, y: number, z: number): Vector3
 	return Vector3.new(-y, z, -x) * STUD * CAR_SCALE
 end
 
--- car origin (Blender 0,0,0 at ground level): centroid of the four wheel centres, dropped by one wheel radius
+-- car frame from the wheels, so it is right whichever way the model is turned:
+-- origin = Blender 0,0,0 (centroid of the wheel centres, dropped by one wheel radius), X = right, Y = up, look = forward.
+-- (The Body part's own rotation can't be used: the import flips it, which sat the driver facing backwards.)
 local sum = Vector3.zero
 for _, n in wheelNames do
 	sum += find(n).Position
 end
 local origin = sum / 4 - Vector3.new(0, wheelR, 0)
+local right = ((find("Wheel_FR").Position + find("Wheel_RR").Position) - (find("Wheel_FL").Position + find("Wheel_RL").Position)).Unit
+local carCF = CFrame.fromMatrix(origin, right, Vector3.yAxis)
 
 local seat = Instance.new("VehicleSeat")
 seat.Name = "DriverSeat"
@@ -102,9 +109,67 @@ seat.Massless = true
 seat.MaxSpeed = 0 -- we drive the wheels ourselves
 seat.Torque = 0
 seat.TurnSpeed = 0
-seat.CFrame = CFrame.new(origin + fromBlender(-0.28, 0.37, 0.50)) * body.CFrame.Rotation
+seat.HeadsUpDisplay = false -- replaced by the speedometer below
+-- 0.40 m: on the seat cushion, which export_roblox.py lowers 10 cm so a seated avatar's head clears the roof
+seat.CFrame = carCF * CFrame.new(fromBlender(-0.28, 0.37, 0.40))
 seat.Parent = model
 weld(body, seat)
+
+-- the seat is buried inside the body, so touching it never seats anyone: use a prompt (Space gets out as usual)
+local prompt = Instance.new("ProximityPrompt")
+prompt.ActionText = "Drive"
+prompt.ObjectText = "Sports Car"
+prompt.KeyboardKeyCode = Enum.KeyCode.E
+prompt.MaxActivationDistance = 14 * CAR_SCALE / 1.6
+prompt.RequiresLineOfSight = false
+prompt.Parent = seat
+prompt.Triggered:Connect(function(player: Player)
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 and not seat.Occupant then
+		seat:Sit(humanoid)
+	end
+end)
+seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+	prompt.Enabled = seat.Occupant == nil
+end)
+
+-- ---------------------------------------------------------------- speedometer
+-- shown only to the driver; 1 stud = 0.28 m (Roblox's usual avatar scale) for the mph figure
+local MPH_PER_STUD_S = 0.28 * 2.23694
+local speedLabel: TextLabel? = nil
+
+local function removeSpeedometer()
+	if speedLabel then
+		(speedLabel.Parent :: Instance):Destroy()
+		speedLabel = nil
+	end
+end
+
+seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+	removeSpeedometer()
+	local humanoid = seat.Occupant
+	local player = humanoid and game:GetService("Players"):GetPlayerFromCharacter(humanoid.Parent)
+	if not player then
+		return
+	end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "SportsCarSpeedometer"
+	gui.ResetOnSpawn = false
+	local label = Instance.new("TextLabel")
+	label.AnchorPoint = Vector2.new(0.5, 1)
+	label.Position = UDim2.new(0.5, 0, 1, -24)
+	label.Size = UDim2.fromOffset(220, 56)
+	label.BackgroundColor3 = Color3.fromRGB(18, 20, 24)
+	label.BackgroundTransparency = 0.25
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 30
+	label.Text = "0 mph"
+	label.Parent = gui
+	Instance.new("UICorner", label).CornerRadius = UDim.new(0, 10)
+	gui.Parent = player:WaitForChild("PlayerGui")
+	speedLabel = label
+end)
 
 -- ---------------------------------------------------------------- wheels
 type Wheel = { motor: HingeConstraint, servo: HingeConstraint? }
@@ -198,5 +263,8 @@ RunService.Heartbeat:Connect(function()
 		if wh.servo then
 			wh.servo.TargetAngle = STEER_SIGN * -steer * lock
 		end
+	end
+	if speedLabel then
+		speedLabel.Text = string.format("%d mph", math.floor(speed * MPH_PER_STUD_S + 0.5))
 	end
 end)

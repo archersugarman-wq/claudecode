@@ -716,8 +716,9 @@ def place_wheel(parts, x, side):
     y = side * 0.795
     for p in parts:
         p.location = (x, y, TIRE_R)
-        if side < 0:
-            p.rotation_euler = (0, 0, math.pi)
+        # set the whole orientation: copies of the right wheels used to keep their 180 deg turn, so the
+        # left wheels showed their back (brake disc) outwards and hid the spokes on the inside
+        p.rotation_euler = (0, 0, math.pi if side < 0 else 0.0)
         p.rotation_euler[1] = math.radians(35 * (1 if x > 0 else 2.3) + 17 * side)
 
 
