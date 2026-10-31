@@ -204,7 +204,7 @@ def mat_glass(name, tint=(0.06, 0.07, 0.07), thin_ior=1.5):
     return M.finish(mix)
 
 
-def mat_car_paint(name="CarPaint", color=(0.36, 0.004, 0.010)):
+def mat_car_paint(name="CarPaint", color=(0.36, 0.004, 0.010), masks=True):
     """Metallic base + clear coat, flake bump, orange-peel on the coat and a
     pixel-exact black lower-body mask driven by object-space Z (no geometry needed)."""
     M = Mat(name)
@@ -236,21 +236,23 @@ def mat_car_paint(name="CarPaint", color=(0.36, 0.004, 0.010)):
                          Coat_Weight=1.0, Coat_Roughness=0.015, Coat_IOR=1.5)
     M.l(flb.outputs["Normal"], paint.inputs["Normal"])
     M.l(peb.outputs["Normal"], paint.inputs["Coat Normal"])
+    if not masks:
+        return M.finish(paint)
 
     # lower body (sills, bumpers): satin black plastic, higher at nose / tail
     black = M.principled(Base_Color=(0.012, 0.012, 0.013, 1), Roughness=0.42,
                          Specular_IOR_Level=0.5)
     thr = M.n("ShaderNodeMapRange", interpolation_type="SMOOTHSTEP")      # nose
-    thr.inputs["From Min"].default_value = 1.95
-    thr.inputs["From Max"].default_value = 2.20
-    thr.inputs["To Min"].default_value = 0.225
-    thr.inputs["To Max"].default_value = 0.300
+    thr.inputs["From Min"].default_value = 2.05
+    thr.inputs["From Max"].default_value = 2.26
+    thr.inputs["To Min"].default_value = 0.215
+    thr.inputs["To Max"].default_value = 0.275
     M.l(sep.outputs["X"], thr.inputs["Value"])
     thr2 = M.n("ShaderNodeMapRange", interpolation_type="SMOOTHSTEP")     # tail: tall black bumper
-    thr2.inputs["From Min"].default_value = -1.80
-    thr2.inputs["From Max"].default_value = -2.22
-    thr2.inputs["To Min"].default_value = 0.225
-    thr2.inputs["To Max"].default_value = 0.52
+    thr2.inputs["From Min"].default_value = -1.86
+    thr2.inputs["From Max"].default_value = -2.12
+    thr2.inputs["To Min"].default_value = 0.215
+    thr2.inputs["To Max"].default_value = 0.50
     M.l(sep.outputs["X"], thr2.inputs["Value"])
     mx = M.n("ShaderNodeMath", operation="MAXIMUM")
     M.l(thr.outputs["Result"], mx.inputs[0])
@@ -262,104 +264,8 @@ def mat_car_paint(name="CarPaint", color=(0.36, 0.004, 0.010)):
     M.l(lt.outputs[0], mix.inputs[0])
     M.l(paint.outputs[0], mix.inputs[1])
     M.l(black.outputs[0], mix.inputs[2])
-    # interior: dark leather where the deck sits under the glass (cabin footprint)
-    def gt(src, val, op="GREATER_THAN"):
-        n_ = M.n("ShaderNodeMath", operation=op)
-        n_.inputs[1].default_value = val
-        M.l(src, n_.inputs[0])
-        return n_.outputs[0]
-
-    ay_ = M.n("ShaderNodeMath", operation="ABSOLUTE")
-    M.l(sep.outputs["Y"], ay_.inputs[0])
-    masks = [gt(sep.outputs["X"], -1.18), gt(sep.outputs["X"], 0.93, "LESS_THAN"),
-             gt(ay_.outputs[0], 0.66, "LESS_THAN"), gt(sep.outputs["Z"], 0.78)]
-    cur = masks[0]
-    for m_ in masks[1:]:
-        mm = M.n("ShaderNodeMath", operation="MULTIPLY")
-        M.l(cur, mm.inputs[0])
-        M.l(m_, mm.inputs[1])
-        cur = mm.outputs[0]
-    leather = M.principled(Base_Color=(0.018, 0.016, 0.016, 1), Roughness=0.5)
-    mix2 = M.n("ShaderNodeMixShader")
-    M.l(cur, mix2.inputs[0])
-    M.l(mix.outputs[0], mix2.inputs[1])
-    M.l(leather.outputs[0], mix2.inputs[2])
-    return M.finish(mix2)
-
-
-def mat_roof(name="Roof"):
-    """Cabin: glass everywhere, painted roof panel above a z contour, thin black frame."""
-    M = Mat(name)
-    tc = M.n("ShaderNodeTexCoord")
-    sep = M.n("ShaderNodeSeparateXYZ")
-    M.l(tc.outputs["Object"], sep.inputs[0])
-    glass = mat_glass("_g").node_tree.nodes  # reuse by building inline instead
-    # inline glass
-    fr = M.n("ShaderNodeFresnel")
-    fr.inputs["IOR"].default_value = 1.5
-    tr = M.n("ShaderNodeBsdfTransparent")
-    tr.inputs["Color"].default_value = (0.20, 0.21, 0.21, 1)
-    gl = M.n("ShaderNodeBsdfGlossy")
-    gl.inputs["Roughness"].default_value = 0.0
-    gmix = M.n("ShaderNodeMixShader")
-    M.l(fr.outputs[0], gmix.inputs[0])
-    M.l(tr.outputs[0], gmix.inputs[1])
-    M.l(gl.outputs[0], gmix.inputs[2])
-    # roof = same red clear-coated paint
-    paint = M.principled(Base_Color=(0.36, 0.004, 0.010, 1), Metallic=0.55, Roughness=0.30,
-                         Coat_Weight=1.0, Coat_Roughness=0.015)
-    trim = M.principled(Base_Color=(0.01, 0.01, 0.01, 1), Roughness=0.35)
-    # masks
-    gt_roof = M.n("ShaderNodeMath", operation="GREATER_THAN")
-    gt_roof.inputs[1].default_value = 1.10
-    M.l(sep.outputs["Z"], gt_roof.inputs[0])
-    gt_trim = M.n("ShaderNodeMath", operation="GREATER_THAN")
-    gt_trim.inputs[1].default_value = 1.087
-    M.l(sep.outputs["Z"], gt_trim.inputs[0])
-    m1 = M.n("ShaderNodeMixShader")  # glass -> trim
-    M.l(gt_trim.outputs[0], m1.inputs[0])
-    M.l(gmix.outputs[0], m1.inputs[1])
-    M.l(trim.outputs[0], m1.inputs[2])
-    m2 = M.n("ShaderNodeMixShader")  # -> roof paint
-    M.l(gt_roof.outputs[0], m2.inputs[0])
-    M.l(m1.outputs[0], m2.inputs[1])
-    M.l(paint.outputs[0], m2.inputs[2])
-    # A / C pillars: band where the surface normal faces equally forwards/backwards and sideways
-    geo = M.n("ShaderNodeNewGeometry")
-    sn = M.n("ShaderNodeSeparateXYZ")
-    M.l(geo.outputs["Normal"], sn.inputs[0])
-    ax = M.n("ShaderNodeMath", operation="ABSOLUTE")
-    ay = M.n("ShaderNodeMath", operation="ABSOLUTE")
-    M.l(sn.outputs["X"], ax.inputs[0])
-    M.l(sn.outputs["Y"], ay.inputs[0])
-    df = M.n("ShaderNodeMath", operation="SUBTRACT")
-    M.l(ax.outputs[0], df.inputs[0])
-    M.l(ay.outputs[0], df.inputs[1])
-    ad = M.n("ShaderNodeMath", operation="ABSOLUTE")
-    M.l(df.outputs[0], ad.inputs[0])
-    band = M.n("ShaderNodeMapRange", interpolation_type="SMOOTHSTEP")
-    band.inputs["From Min"].default_value = 0.11
-    band.inputs["From Max"].default_value = 0.06
-    band.inputs["To Min"].default_value = 0.0
-    band.inputs["To Max"].default_value = 1.0
-    M.l(ad.outputs[0], band.inputs["Value"])
-    facing = M.n("ShaderNodeMath", operation="GREATER_THAN")
-    facing.inputs[1].default_value = 0.22
-    M.l(ax.outputs[0], facing.inputs[0])
-    above = M.n("ShaderNodeMath", operation="GREATER_THAN")
-    above.inputs[1].default_value = 0.83
-    M.l(sep.outputs["Z"], above.inputs[0])
-    mk = M.n("ShaderNodeMath", operation="MULTIPLY")
-    M.l(band.outputs["Result"], mk.inputs[0])
-    M.l(facing.outputs[0], mk.inputs[1])
-    mk2 = M.n("ShaderNodeMath", operation="MULTIPLY")
-    M.l(mk.outputs[0], mk2.inputs[0])
-    M.l(above.outputs[0], mk2.inputs[1])
-    m3 = M.n("ShaderNodeMixShader")
-    M.l(mk2.outputs[0], m3.inputs[0])
-    M.l(m2.outputs[0], m3.inputs[1])
-    M.l(paint.outputs[0], m3.inputs[2])
-    return M.finish(m3)
+    # (the cabin cavity walls get the dark liner from the boolean cutter, so no interior mask here)
+    return M.finish(mix)
 
 
 def mat_tire():
@@ -442,30 +348,38 @@ def mat_asphalt():
 # --------------------------------------------------------------------------
 
 
-def loft(name, stations, section_fn, M=44, taper=None, crown=None, tuck=None):
+def loft(name, stations, section_fn, M=44, taper=None, crown=None, tuck=None, scallop=None):
     """Loft closed superellipse cross-sections along X.
 
     section_fn(x) -> (half_width, z_bottom, z_top, n_top, n_bottom)
-    taper(x) -> scale factor (0..1) applied to width and height so the ends round off.
+    taper(x) -> scale factor (0..1), or (plan, upper, lower) factors, so the ends round off.
+    scallop(x) -> depth (m) of a concave sculpt pressed into the side at mid height.
     """
     verts = []
     for x in stations:
         W, zb, zt, nt, nb = section_fn(x)
         T = taper(x) if taper else 1.0
+        if not isinstance(T, tuple):
+            T = (T, T, T)
+        Tw, Tt, Tb = T            # plan, upper-profile and lower-profile closing factors
         zc = 0.5 * (zb + zt)
-        H = 0.5 * (zt - zb) * T
-        W = W * T
+        H0 = 0.5 * (zt - zb)
+        W = W * Tw
+        T = Tw
         for k in range(M):
             th = -math.pi / 2 + 2 * math.pi * k / M
             c, s = math.cos(th), math.sin(th)
             e = 2.0 / (nt if s > 0 else nb)
             y = float(W * sgnpow(c, e))
-            z = float(zc + H * sgnpow(s, e))
-            zrel = (z - (zc - H)) / (2 * H) if H > 1e-6 else 0.5
+            z = float(zc + H0 * (Tt if s > 0 else Tb) * sgnpow(s, e))
+            lo, hi = zc - H0 * Tb, zc + H0 * Tt
+            zrel = (z - lo) / (hi - lo) if hi - lo > 1e-6 else 0.5
             if crown and s > 0:   # raise the outer top corners -> fenders stand above the hood
                 z += crown(x) * T * (abs(y) / max(W, 1e-6)) ** 3
             if tuck:              # narrow the sills -> body tumblehome below the shoulder
                 y *= 1.0 - tuck(x) * (1.0 - zrel) ** 2
+            if scallop and abs(c) > 0.2:   # concave sculpt along the doors, fading out at top/bottom
+                y -= math.copysign(scallop(x) * math.exp(-((zrel - 0.42) / 0.13) ** 2), y)
             verts.append((x, y, z))
     faces = []
     S = len(stations)
@@ -492,82 +406,130 @@ def loft(name, stations, section_fn, M=44, taper=None, crown=None, tuck=None):
     return ob
 
 
-CAR_L = 4.52
-WHEELBASE = 2.70
+# --------------------------------------------------------------------------
+# Car spec. Car frame: metres, +X forward, +Y left, +Z up, origin on the ground at mid-wheelbase.
+# Proportions follow the front-engine GT class (published dimensions, quoted from memory, not
+# re-checked in this session): Ferrari Roma 4656 / 1974 / 1301 / wb 2670, Aston Martin Vantage
+# 4465 / 1942 / 1273 / 2704, Mercedes-AMG GT 4546 / 1939 / 1288 / 2630, Jaguar F-Type
+# 4470 / 1923 / 1311 / 2622 (length / width / height / wheelbase, mm).
+# --------------------------------------------------------------------------
+WHEELBASE = 2.68
 FRONT_X, REAR_X = WHEELBASE / 2, -WHEELBASE / 2
-TIRE_R = 0.345
-ARCH_R = 0.378
+X_NOSE = FRONT_X + 0.98          # front overhang 0.98 m
+X_TAIL = REAR_X - 0.89           # rear overhang 0.89 m  -> length 4.55 m
+CAR_L = X_NOSE - X_TAIL
+TRACK_F, TRACK_R = 1.66, 1.64    # tyre centre to tyre centre
+TIRE_R = 0.345                   # 255/35 R20 front, 295/30 R20 rear (both ~0.343 m)
+TIRE_W_F, TIRE_W_R = 0.255, 0.295
+ARCH_R = 0.385
+ROOF_Z = 1.285                   # overall height
+COWL_X = 0.42                    # windscreen base (dash-to-axle 0.92 m: long-hood GT)
 
-# --- body profile curves (tuned by eye on side / top / front silhouettes) ---
-_zt = pchip([-2.26, -2.10, -1.75, -1.30, -0.80, 0.00, 0.80, 1.30, 1.80, 2.10, 2.26],
-            [0.86, 0.90, 0.93, 0.92, 0.87, 0.83, 0.80, 0.765, 0.64, 0.53, 0.47])
-_zb = pchip([-2.26, -2.00, -1.70, -1.00, 0.00, 1.00, 1.80, 2.10, 2.26],
-            [0.40, 0.31, 0.17, 0.145, 0.14, 0.14, 0.15, 0.17, 0.21])
-_w = pchip([-2.26, -2.00, -1.60, -1.35, -0.90, -0.30, 0.30, 0.90, 1.35, 1.70, 2.00, 2.26],
-           [0.82, 0.92, 0.985, 1.00, 0.95, 0.915, 0.915, 0.95, 0.975, 0.95, 0.915, 0.87])
-
-
-_crown = pchip([-2.26, -1.9, -1.35, -0.8, 0.0, 0.8, 1.35, 1.9, 2.26],
-               [0.0, 0.06, 0.12, 0.05, 0.0, 0.05, 0.11, 0.06, 0.0])
-_tuck = pchip([-2.26, -1.5, 0.0, 1.5, 2.26], [0.02, 0.05, 0.075, 0.05, 0.02])
+# --- body control lines (few, monotone keys; centreline unless noted) ---
+_zt = pchip([X_TAIL, -2.17, -2.02, -1.70, -1.34, -0.80, 0.00, 0.42, 0.85, 1.34, 1.80, 2.12, X_NOSE],
+            [0.915, 0.968, 0.966, 0.952, 0.932, 0.905, 0.890, 0.880, 0.845, 0.790, 0.715, 0.615, 0.505])
+_zb = pchip([X_TAIL, -2.08, -1.85, -1.34, 0.00, 1.34, 1.95, 2.18, X_NOSE],
+            [0.370, 0.280, 0.180, 0.130, 0.120, 0.130, 0.150, 0.185, 0.245])
+_w = pchip([X_TAIL, -2.12, -1.85, -1.45, -1.05, -0.55, 0.00, 0.55, 1.00, 1.34, 1.72, 2.05, X_NOSE],
+           [0.860, 0.925, 0.962, 0.972, 0.955, 0.918, 0.905, 0.908, 0.935, 0.957, 0.945, 0.910, 0.840])
+# fender / haunch rise over the outer top corner and lower-body tumblehome
+_crown = pchip([X_TAIL, -2.0, -1.40, -0.80, 0.0, 0.70, 1.34, 1.95, X_NOSE],
+               [0.00, 0.022, 0.090, 0.030, 0.010, 0.030, 0.070, 0.045, 0.00])
+_tuck = pchip([X_TAIL, -1.5, 0.0, 1.5, X_NOSE], [0.03, 0.055, 0.08, 0.055, 0.03])
 
 
 def body_section(x):
     return _w(x), _zb(x), _zt(x), 3.7, 4.2
 
 
-def body_taper(x):
-    # round the nose and tail in plan and profile with a superellipse falloff
-    x0f, x0r, p = 1.80, -1.80, 3.6
-    if x > x0f:
-        s = min((x - x0f) / (CAR_L / 2 - x0f), 1.0)
-    elif x < x0r:
-        s = min((x0r - x) / (CAR_L / 2 + x0r), 1.0)
-    else:
-        return 1.0
+def _falloff(x, x0, x1, p):
+    s = min(max((x - x0) / (x1 - x0), 0.0), 1.0)
     return max(1.0 - s**p, 1e-4) ** (1.0 / p)
 
 
-_rz = pchip([-1.50, -1.20, -0.90, -0.50, -0.10, 0.20, 0.50, 0.80, 1.05],
-            [0.80, 0.90, 1.02, 1.12, 1.17, 1.15, 1.04, 0.88, 0.72])
-_rw = pchip([-1.50, -1.20, -0.90, -0.50, -0.10, 0.30, 0.70, 1.05],
-            [0.45, 0.64, 0.75, 0.80, 0.80, 0.78, 0.72, 0.55])
+def body_taper(x):
+    """(plan, upper, lower) rounding of the ends. Tail: corners round off in plan over the last
+    0.40 m, the deck edge closes only in the last 0.08 m (crisp lip) while the lower panel tucks
+    forward over 0.45 m, so the tail face leans under instead of standing as a flat slab.
+    Nose: hood rolls over softly, the chin closes late so the splitter area stays forward."""
+    if x > 0:
+        return (_falloff(x, 2.04, X_NOSE, 3.0), _falloff(x, 1.98, X_NOSE, 2.4),
+                _falloff(x, 2.12, X_NOSE, 3.0))
+    return (_falloff(x, -1.83, X_TAIL, 2.3), _falloff(x, -2.15, X_TAIL, 3.2),
+            _falloff(x, -1.78, X_TAIL, 2.0))
+
+
+# concave sculpt along the doors (catches a reflection line like a real side panel)
+_scallop = pchip([-1.75, -1.2, -0.6, 0.2, 0.75, 1.1], [0.0, 0.012, 0.024, 0.024, 0.012, 0.0])
+
+
+# --- greenhouse: one lofted canopy shared by the render and the Roblox export ---
+GH_X0, GH_X1 = -1.74, COWL_X + 0.03
+_rz = pchip([GH_X0, -1.45, -1.15, -0.80, -0.50, -0.22, 0.05, 0.25, GH_X1],
+            [0.900, 1.010, 1.125, 1.255, 1.285, 1.262, 1.135, 1.010, 0.850])
+_rw = pchip([GH_X0, -1.50, -1.20, -0.80, -0.30, 0.10, GH_X1],
+            [0.420, 0.600, 0.725, 0.780, 0.790, 0.765, 0.640])
+BELT = 0.905         # side-window sill
+XF, XR = -0.22, -0.80  # roof panel: windscreen header / rear-glass top
+RY = 0.565           # roof panel half width = top edge of the side windows
+PW = 0.036           # half width of the A-pillars and roof rails
+TRIM = 0.020         # black frame band inside every glass edge
+A1, A2 = (COWL_X - 0.04, 0.655), (XF, RY)   # A-pillar line in plan: screen base corner -> roof corner
+C1 = (-1.28, BELT)   # side-window rear edge starts here and leans back up to the roof
 
 
 def cabin_section(x):
     return _rw(x), 0.55, _rz(x), 2.5, 3.0
 
 
+def cabin_point(x, th):
+    W, zt, zb = _rw(x), _rz(x), 0.55
+    c, s = math.cos(th), math.sin(th)
+    e = 2.0 / (2.5 if s > 0 else 3.0)
+    y = W * math.copysign(abs(c) ** e, c)
+    zc, H = 0.5 * (zb + zt), 0.5 * (zt - zb)
+    return (x, y, zc + H * math.copysign(abs(s) ** e, s))
+
+
+def plan_normal(p, q, toward):
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    L = math.hypot(dx, dy)
+    n = (dy / L, -dx / L)
+    if n[0] * toward[0] + n[1] * toward[1] < 0:
+        n = (-n[0], -n[1])
+    return n
+
+
 def build_body():
-    u = np.linspace(0, 1, 64)
-    st = (-CAR_L / 2 + CAR_L * (0.5 - 0.5 * np.cos(np.pi * u))).tolist()
-    body = loft("Body", st, body_section, M=44, taper=body_taper, crown=_crown, tuck=_tuck)
+    u = np.linspace(0, 1, 72)
+    st = (X_TAIL + CAR_L * (0.5 - 0.5 * np.cos(np.pi * u))).tolist()
+    body = loft("Body", st, body_section, M=48, taper=body_taper, crown=_crown, tuck=_tuck,
+                scallop=_scallop)
     add_mod(body, "SUBSURF", levels=2, render_levels=2)
     apply_mods(body)
 
     body.data.materials.append(PAINT)
-    # wheel arches: boolean-subtract cylinders, cutter faces carry the arch-liner material
     liner = mat_principled("ArchLiner", (0.008, 0.008, 0.008), 0.9)
     cutters = []
     # cabin cavity: open the deck under the glass so the interior is a real, hollow space
     u_ = np.linspace(0, 1, 40)
-    st_ = (-1.5 + 2.55 * (0.5 - 0.5 * np.cos(np.pi * u_))).tolist()
+    st_ = (GH_X0 + 0.06 + (GH_X1 - GH_X0 - 0.12) * (0.5 - 0.5 * np.cos(np.pi * u_))).tolist()
     cav = loft("CabinCavity", st_, lambda x: (_rw(x) * 0.90, 0.30, _rz(x) - 0.01, 2.5, 3.0), M=32)
     assign(cav, liner)
     cutters.append(cav)
-    for wx in (FRONT_X, REAR_X):
+    for wx, tr in ((FRONT_X, TRACK_F), (REAR_X, TRACK_R)):
         for sy in (1, -1):
             bm = bmesh.new()
             bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=64,
                                   radius1=ARCH_R, radius2=ARCH_R, depth=0.9)
             bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0),
                              matrix=Matrix.Rotation(math.radians(90), 3, "X"))
-            bmesh.ops.translate(bm, verts=bm.verts, vec=(wx, sy * (0.50 + 0.45), TIRE_R + 0.01))
+            bmesh.ops.translate(bm, verts=bm.verts, vec=(wx, sy * (tr / 2 - 0.20 + 0.45), TIRE_R + 0.012))
             c = bm_obj("ArchCutter", bm)
             assign(c, liner)
             cutters.append(c)
     for c in cutters:
-        m = add_mod(body, "BOOLEAN", operation="DIFFERENCE", solver="EXACT", object=c)
+        add_mod(body, "BOOLEAN", operation="DIFFERENCE", solver="EXACT", object=c)
         apply_mods(body)
         bpy.data.objects.remove(c)
     smooth_by_angle(body, 38)
@@ -575,15 +537,75 @@ def build_body():
     return body
 
 
-def build_cabin():
-    u = np.linspace(0, 1, 56)
-    st = (-1.5 + 2.55 * (0.5 - 0.5 * np.cos(np.pi * u))).tolist()
-    cab = loft("Cabin", st, cabin_section, M=40)
-    add_mod(cab, "SUBSURF", levels=2, render_levels=2)
-    apply_mods(cab)
-    smooth_by_angle(cab, 50)
-    assign(cab, mat_roof())
-    return cab
+def build_greenhouse(paint, trim, glass_mat):
+    """Canopy cut by exact planes along every window edge: CabinGlass (glass) and CabinFrame
+    (painted roof / pillars + black trim band). Same objects go to the render and to Roblox."""
+    NXS, NTH = 84, 60
+    xs = [GH_X0 + (GH_X1 - GH_X0) * (0.5 - 0.5 * math.cos(math.pi * i / (NXS - 1))) for i in range(NXS)]
+    ths = [-0.32 + (math.pi + 0.64) * j / (NTH - 1) for j in range(NTH)]
+    bm = bmesh.new()
+    grid = [[bm.verts.new(cabin_point(x, th)) for th in ths] for x in xs]
+    for i in range(NXS - 1):
+        for j in range(NTH - 1):
+            bm.faces.new((grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+    NA = plan_normal(A1, A2, (0.0, -1.0))      # A-pillar line normal, pointing inboard
+    th_edge = min(ths, key=lambda th: abs(cabin_point(XR, th)[1] - RY) if math.sin(th) > 0 else 9)
+    z_edge = cabin_point(XR, th_edge)[2]
+    C2 = (XR - 0.10, z_edge)
+    NC = plan_normal(C1, C2, (1.0, 0.0))       # (nx, nz), pointing forward
+
+    def d_a(x, y):
+        return NA[0] * (x - A1[0]) + NA[1] * (abs(y) - A1[1])
+
+    def d_c(x, z):
+        return NC[0] * (x - C1[0]) + NC[1] * (z - C1[1])
+
+    planes = []
+    for k in (0.0, TRIM):
+        planes += [((0, 0, BELT + k), (0, 0, 1)), ((XF + k, 0, 0), (1, 0, 0)), ((XR - k, 0, 0), (1, 0, 0)),
+                   ((C1[0] + NC[0] * k, 0, C1[1] + NC[1] * k), (NC[0], 0, NC[1]))]
+        for sg in (1, -1):
+            planes += [((0, sg * (RY + k), 0), (0, 1, 0)), ((0, sg * (RY - PW - k), 0), (0, 1, 0))]
+            for off in (PW + k, -PW - k):
+                co = (A1[0] + NA[0] * off, sg * (A1[1] + NA[1] * off), 0)
+                planes.append((co, (NA[0], sg * NA[1], 0)))
+    for co, no in planes:
+        bmesh.ops.bisect_plane(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:], dist=1e-6,
+                               plane_co=co, plane_no=no)
+
+    def classify(f):
+        x, y, z = f.calc_center_median()
+        ay = abs(y)
+        insets = (
+            min(x - XF, d_a(x, y) - PW, z - BELT),                      # windscreen
+            min(z - BELT, ay - RY, -d_a(x, y) - PW, d_c(x, z)),          # side windows
+            min(XR - x, (RY - PW) - ay, z - BELT),                       # rear glass
+        )
+        best = max(insets)
+        return "glass" if best > TRIM else ("trim" if best > 0 else "paint")
+
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3])
+    cls = [classify(f) for f in bm.faces]
+
+    def part(name, keep):
+        b2 = bm.copy()
+        b2.faces.ensure_lookup_table()
+        bmesh.ops.delete(b2, geom=[f for f, c in zip(b2.faces, cls) if c not in keep], context="FACES")
+        for f in b2.faces:
+            f.smooth = True
+            f.material_index = 1 if classify(f) == "trim" else 0
+        ob = bm_obj(name, b2)
+        return ob
+
+    glass = part("CabinGlass", {"glass"})
+    assign(glass, glass_mat)
+    frame = part("CabinFrame", {"paint", "trim"})
+    frame.data.materials.append(paint)
+    frame.data.materials.append(trim)
+    bm.free()
+    return glass, frame
 
 
 # --------------------------------------------------------------------------
@@ -619,7 +641,9 @@ def spoke(bm, r0, r1, w0, w1, a0, a1, t, phi):
         bm.faces.new([vs[i] for i in q])
 
 
-def build_wheel(width_scale=1.0, front=True):
+def build_wheel(tire_w):
+    """20-inch wheel: tyre of section width tire_w (m), concave 10-spoke rim, slotted disc, caliper."""
+    width_scale = tire_w / 0.277
     parts = []
     RR = 0.268                       # rim lip radius (21")
     hw = 0.1385 * width_scale
@@ -643,15 +667,13 @@ def build_wheel(width_scale=1.0, front=True):
     assign(barrel, RIM_MAT)
     parts.append(barrel)
 
-    # twin-spoke face: 5 pairs, slightly dished
+    # concave 10-spoke face: spokes run from a recessed hub out to the lip, widening as they go
     bm = bmesh.new()
-    face_a = 0.078 * ws
-    for i in range(5):
-        base = i * 2 * math.pi / 5
-        for off in (-0.105, 0.105):
-            spoke(bm, 0.048, RR - 0.020, 0.034, 0.058, face_a - 0.024, face_a + 0.014, 0.024, base + off)
-    bmesh.ops.create_cone(bm, cap_ends=True, segments=48, radius1=0.066, radius2=0.062,
-                          depth=0.03, matrix=Matrix.Translation((0, face_a - 0.010, 0)) @
+    face_a = 0.080 * ws
+    for i in range(10):
+        spoke(bm, 0.052, RR - 0.014, 0.022, 0.034, face_a - 0.040, face_a + 0.012, 0.020, i * 2 * math.pi / 10)
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=48, radius1=0.068, radius2=0.060,
+                          depth=0.032, matrix=Matrix.Translation((0, face_a - 0.036, 0)) @
                           Matrix.Rotation(math.pi / 2, 4, "X"))
     spokes = bm_obj("Spokes", bm)
     add_mod(spokes, "BEVEL", width=0.0025, segments=2, limit_method="ANGLE")
@@ -660,12 +682,19 @@ def build_wheel(width_scale=1.0, front=True):
     assign(spokes, RIM_MAT)
     parts.append(spokes)
 
+    # machined outer lip
+    lip = lathe("RimLip", [(face_a + 0.016, RR + 0.002), (face_a + 0.018, RR - 0.006), (face_a + 0.010, RR - 0.012),
+                           (face_a + 0.004, RR - 0.004)], steps=96)
+    smooth_by_angle(lip, 50)
+    assign(lip, LIP_MAT)
+    parts.append(lip)
+
     # lug nuts
     bm = bmesh.new()
     for i in range(5):
         a = i * 2 * math.pi / 5
         bmesh.ops.create_cone(bm, cap_ends=True, segments=6, radius1=0.0085, radius2=0.0085, depth=0.014,
-                              matrix=Matrix.Translation((0.040 * math.cos(a), face_a + 0.008, 0.040 * math.sin(a))) @
+                              matrix=Matrix.Translation((0.040 * math.cos(a), face_a - 0.018, 0.040 * math.sin(a))) @
                               Matrix.Rotation(math.pi / 2, 4, "X"))
     lugs = bm_obj("Lugs", bm)
     assign(lugs, CHROME)
@@ -713,7 +742,7 @@ def build_wheel(width_scale=1.0, front=True):
 
 def place_wheel(parts, x, side):
     """side=-1 right (outer face towards -Y), +1 left."""
-    y = side * 0.795
+    y = side * (TRACK_F if x > 0 else TRACK_R) / 2
     for p in parts:
         p.location = (x, y, TIRE_R)
         # set the whole orientation: copies of the right wheels used to keep their 180 deg turn, so the
@@ -778,7 +807,7 @@ def build_camera(kind):
     bpy.context.scene.camera = co
     presets = {
         "hero": ((6.3, -5.6, 0.78), (0.35, 0.0, 0.50), 60),
-        "side": ((0.0, -9.0, 0.62), (0.0, 0.0, 0.58), 70),
+        "side": ((0.0, -11.5, 0.62), (0.0, 0.0, 0.60), 70),
         "front": ((8.0, 0.4, 0.62), (0.0, 0.0, 0.55), 75),
         "rear": ((-6.5, -4.8, 0.85), (-0.3, 0.0, 0.55), 60),
         "wheel": ((3.3, -2.5, 0.42), (1.35, -0.8, 0.36), 70),
@@ -994,14 +1023,15 @@ def mat_grass():
 
 
 def build_materials_detail():
-    global M_BLACK, M_RUBBER, M_HEAD, M_DRL, M_TAIL, M_TAILGLOW, M_GRILLE, M_VENT, M_MIRRORGLASS
+    global M_BLACK, M_RUBBER, M_HEAD, M_DRL, M_TAIL, M_TAILGLOW, M_GRILLE, M_MIRRORGLASS
+    global M_SATIN, M_LOUVRE, M_TIPS
     M_BLACK = mat_principled("BlackPlastic", (0.012, 0.012, 0.013), 0.42, 0.0)
     M_RUBBER = mat_principled("Rubber", (0.004, 0.004, 0.004), 0.35, 0.0)
     M_HEAD = mat_principled("HeadlightGlass", (0.004, 0.005, 0.006), 0.04, 0.0, Coat_Weight=1.0,
                             Coat_Roughness=0.0)
-    M_DRL = mat_emission("DRL", (1.0, 0.93, 0.80), 18.0)
-    M_TAIL = mat_principled("TailGlass", (0.35, 0.0, 0.01), 0.05, 0.0, Coat_Weight=1.0, Coat_Roughness=0.0)
-    M_TAILGLOW = mat_emission("TailGlow", (1.0, 0.02, 0.01), 14.0)
+    M_DRL = mat_emission("DRL", (1.0, 0.93, 0.80), 12.0)
+    M_TAIL = mat_principled("TailGlass", (0.045, 0.0, 0.002), 0.04, 0.0, Coat_Weight=1.0, Coat_Roughness=0.0)
+    M_TAILGLOW = mat_emission("TailGlow", (1.0, 0.03, 0.01), 5.0)
     M_MIRRORGLASS = mat_principled("MirrorGlass", (0.02, 0.02, 0.02), 0.0, 1.0)
     # horizontal-slat intake: dark gaps with satin bars
     M = Mat("Slats")
@@ -1024,120 +1054,195 @@ def build_materials_detail():
     M.l(cr.outputs["Color"], pr.inputs["Base Color"])
     M.l(bp.outputs["Normal"], pr.inputs["Normal"])
     M_GRILLE = M.finish(pr)
-    M_VENT = M_GRILLE
+    M_SATIN = mat_principled("SatinTrim", (0.25, 0.25, 0.26), 0.28, 1.0)
+    M_TIPS = mat_principled("ExhaustTip", (0.30, 0.29, 0.28), 0.22, 1.0)
+    # hood louvres: slats running across the car, stacked along x
+    M = Mat("Louvre")
+    tc = M.n("ShaderNodeTexCoord")
+    wv = M.n("ShaderNodeTexWave", wave_type="BANDS", bands_direction="X", wave_profile="SAW")
+    wv.inputs["Scale"].default_value = 70
+    wv.inputs["Distortion"].default_value = 0.0
+    M.l(tc.outputs["Object"], wv.inputs["Vector"])
+    cr = M.n("ShaderNodeValToRGB")
+    cr.color_ramp.interpolation = "CONSTANT"
+    cr.color_ramp.elements[0].color = (0.002, 0.002, 0.002, 1)
+    cr.color_ramp.elements[1].position = 0.5
+    cr.color_ramp.elements[1].color = (0.03, 0.03, 0.032, 1)
+    M.l(wv.outputs["Fac"], cr.inputs["Fac"])
+    bp = M.n("ShaderNodeBump")
+    bp.inputs["Strength"].default_value = 0.8
+    bp.inputs["Distance"].default_value = 0.004
+    M.l(wv.outputs["Fac"], bp.inputs["Height"])
+    pr = M.principled(Roughness=0.4)
+    M.l(cr.outputs["Color"], pr.inputs["Base Color"])
+    M.l(bp.outputs["Normal"], pr.inputs["Normal"])
+    M_LOUVRE = M.finish(pr)
 
 
-def build_details(body, cabin):
+def superellipsoid(name, centre, size, n=2.6, mat=None, rot=(0.0, 0.0, 0.0), seg=(40, 20), taper=None):
+    """|x/a|^n + |y/b|^n + |z/c|^n = 1. taper(t) scales the x/z half sizes along y (t in -1..1)."""
+    a, b, c = size
+    bm = bmesh.new()
+    rings = []
+    nu, nv = seg
+    e = 2.0 / n
+    for i in range(1, nv):
+        ph = -math.pi / 2 + math.pi * i / nv
+        cp, sp = math.cos(ph), math.sin(ph)
+        ring = []
+        for j in range(nu):
+            th = 2 * math.pi * j / nu
+            ct, st = math.cos(th), math.sin(th)
+            y = b * float(sgnpow(sp, e))
+            k = taper(y / b) if taper else 1.0
+            x = a * k * float(sgnpow(cp, e) * sgnpow(ct, e))
+            z = c * k * float(sgnpow(cp, e) * sgnpow(st, e))
+            ring.append(bm.verts.new((x, y, z)))
+        rings.append(ring)
+    for r0, r1 in zip(rings[:-1], rings[1:]):
+        for j in range(nu):
+            bm.faces.new((r0[j], r0[(j + 1) % nu], r1[(j + 1) % nu], r1[j]))
+    for ring, sgn in ((rings[0], -1), (rings[-1], 1)):
+        pole = bm.verts.new((0, sgn * b, 0))
+        for j in range(nu):
+            bm.faces.new((ring[j], ring[(j + 1) % nu], pole))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    ob = bm_obj(name, bm)
+    ob.location = centre
+    ob.rotation_euler = rot
+    smooth_by_angle(ob, 70)
+    if mat:
+        assign(ob, mat)
+    return ob
+
+
+def outline(cx, cy, a, b, n, k=48):
+    """Superellipse outline points in a 2D plane (used for shut lines and surrounds)."""
+    pts = []
+    for i in range(k):
+        th = 2 * math.pi * i / k
+        pts.append((cx + a * float(sgnpow(math.cos(th), 2.0 / n)), cy + b * float(sgnpow(math.sin(th), 2.0 / n))))
+    return pts
+
+
+def build_details(body):
     bpy.context.view_layer.update()
     build_materials_detail()
     carbon = mat_carbon()
     for s in (1, -1):  # +1 = left (+Y), -1 = right (-Y)
-        side = Vector((0, -s, 0))
-        # ---- headlights --------------------------------------------------
-        d = (-0.93, 0.0, -0.37)
-        P = (2.12, s * 0.63, 0.57)
-        HA, HB, HN, HR = 0.27, 0.070, 3.6, 0.20
-        surface_patch(f"Headlight{s}", body, P, d, (0, s, 0), HA, HB, n=HN, rot=HR,
-                      mat=M_HEAD, offset=0.0025)
+        # ---- headlights: dark lens with an L-shaped DRL ---------------------------------------
+        d = Vector((-0.86, -s * 0.22, -0.46)).normalized()
+        P = Vector((2.17, s * 0.655, 0.585))
+        HA, HB, HN, HR = 0.235, 0.060, 3.4, 0.12
+        surface_patch(f"Headlight{s}", body, P, d, (0, s, 0), HA, HB, n=HN, rot=HR, mat=M_HEAD, offset=0.0025)
         dd, u, v = basis(d, (0, s, 0))
         cr_, sr_ = math.cos(HR), math.sin(HR)
-        pl = []
-        for t in np.linspace(-0.88, 0.88, 14):
-            px = HA * t
-            py = HB * 0.74 * (1 - abs(t) ** HN) ** (1 / HN)
-            pl.append(Vector(P) + u * (px * cr_ - py * sr_) + v * (px * sr_ + py * cr_))
-        surface_tube(f"DRL{s}", body, pl, d, 0.0038, M_DRL, offset=0.0045, step=0.006)
-        # ---- front intakes ----------------------------------------------
-        surface_patch(f"CornerIntake{s}", body, (2.2, s * 0.64, 0.325), (-1, 0, 0), (0, s, 0), 0.17, 0.07,
-                      n=3.0, rot=-0.06 * s * 0, mat=M_GRILLE, offset=0.002)
-        # ---- door shut line + handle ---------------------------------------
-        door = [(-0.60, 0.745), (-0.62, 0.60), (-0.60, 0.34), (-0.55, 0.288), (0.60, 0.288), (0.66, 0.30),
-                (0.70, 0.36), (0.715, 0.60), (0.70, 0.745)]
-        surface_tube(f"DoorLine{s}", body, [(x, s * 3.0, z) for x, z in door], (0, -s, 0), 0.0022, M_RUBBER,
+
+        def lp(px, py):
+            return P + u * (px * cr_ - py * sr_) + v * (px * sr_ + py * cr_)
+
+        drl = [lp(HA * t, HB * 0.62) for t in np.linspace(-0.85, 0.80, 12)]
+        drl += [lp(HA * 0.80 + HB * 0.25 * k, HB * (0.62 - 1.2 * k)) for k in np.linspace(0.1, 1.0, 5)]
+        surface_tube(f"DRL{s}", body, drl, d, 0.0034, M_DRL, offset=0.0048, step=0.005)
+        # ---- lower corner intakes ------------------------------------------------------------
+        surface_patch(f"CornerIntake{s}", body, (2.40, s * 0.56, 0.305), (-1, 0, 0), (0, s, 0), 0.115, 0.058,
+                      n=3.2, rot=0.10, mat=M_GRILLE, offset=0.002)
+        # ---- door shut line, flush handle, fender vent, carbon sill blade ----------------------
+        door = [(0.60, 0.90), (0.615, 0.60), (0.585, 0.34), (0.52, 0.292), (-0.70, 0.292), (-0.77, 0.33),
+                (-0.81, 0.60), (-0.815, 0.90)]
+        surface_tube(f"DoorLine{s}", body, [(x, s * 3.0, z) for x, z in door], (0, -s, 0), 0.0021, M_RUBBER,
                      offset=-0.0008, step=0.01)
-        surface_patch(f"DoorHandle{s}", body, (-0.30, s * 3.0, 0.655), (0, -s, 0), (1, 0, 0), 0.075, 0.014,
-                      n=3.5, mat=M_BLACK, offset=0.0025, v=(0, 0, 1))
-        surface_patch(f"FenderGill{s}", body, (0.84, s * 3.0, 0.58), (0, -s, 0), (1, 0, 0), 0.075, 0.032,
-                      n=3.0, rot=0.35, mat=M_VENT, offset=0.002, v=(0, 0, 1))
-        # ---- rear lights -----------------------------------------------------
-        Pt = (-2.25, s * 0.52, 0.80)
-        surface_patch(f"TailLens{s}", body, Pt, (1, 0, 0), (0, s, 0), 0.33, 0.052, n=3.0, rot=-0.06,
+        surface_patch(f"DoorHandle{s}", body, (-0.50, s * 3.0, 0.775), (0, -s, 0), (1, 0, 0), 0.070, 0.012,
+                      n=4.0, mat=M_BLACK, offset=0.0022, v=(0, 0, 1))
+        surface_patch(f"FenderVent{s}", body, (0.80, s * 3.0, 0.585), (0, -s, 0), (1, 0, 0), 0.085, 0.030,
+                      n=3.0, rot=0.28, mat=M_GRILLE, offset=0.002, v=(0, 0, 1))
+        surface_patch(f"SillBlade{s}", body, (-0.02, s * 3.0, 0.235), (0, -s, 0), (1, 0, 0), 0.86, 0.040,
+                      n=8.0, mat=carbon, offset=0.0025, v=(0, 0, 1))
+        # ---- tail lamps: wrap-around lens with a glow line inside --------------------------------
+        Pt = Vector((-2.30, s * 0.555, 0.835))
+        surface_patch(f"TailLens{s}", body, Pt, (1, 0, 0), (0, s, 0), 0.315, 0.046, n=3.6, rot=-0.05,
                       mat=M_TAIL, offset=0.0025)
         dd, u, v = basis((1, 0, 0), (0, s, 0))
-        surface_tube(f"TailGlow{s}", body, [Vector(Pt) + u * (-0.28) + v * 0.0, Vector(Pt) + u * 0.31 + v * (-0.004)],
-                     (1, 0, 0), 0.0065, M_TAILGLOW, offset=0.0045, step=0.008)
-        # ---- exhaust tip (placed from a ray-cast of the tail surface) --------------------
-        ey = s * 0.46
-        loc, nor = cast(body, (-4.0, ey, 0.43), (1, 0, 0), 6.0)
-        x0 = loc.x if loc else -2.15
-        bm = bmesh.new()
-        bmesh.ops.create_cone(bm, cap_ends=False, segments=48, radius1=0.050, radius2=0.052, depth=0.16,
-                              matrix=Matrix.Translation((x0 - 0.01, ey, 0.43)) @ Matrix.Rotation(math.pi / 2, 4, "Y"))
-        ex = bm_obj(f"Exhaust{s}", bm)
-        add_mod(ex, "SOLIDIFY", thickness=0.004, offset=0)
-        add_mod(ex, "BEVEL", width=0.0015, segments=2)
-        apply_mods(ex)
-        smooth_by_angle(ex, 50)
-        assign(ex, CHROME)
-        bm = bmesh.new()
-        bmesh.ops.create_cone(bm, cap_ends=True, segments=48, radius1=0.047, radius2=0.047, depth=0.01,
-                              matrix=Matrix.Translation((x0 + 0.03, ey, 0.43)) @ Matrix.Rotation(math.pi / 2, 4, "Y"))
-        exi = bm_obj(f"ExhaustInner{s}", bm)
-        assign(exi, M_BLACK)
-        # ---- mirrors ------------------------------------------------------------
-        bm = bmesh.new()
-        bmesh.ops.create_uvsphere(bm, u_segments=40, v_segments=20, radius=1.0,
-                                  matrix=Matrix.Translation((0.60, s * 0.97, 0.865)) @
-                                  Matrix.Rotation(s * 0.2, 4, "Z") @ Matrix.Diagonal((0.095, 0.07, 0.048, 1)))
-        mir = bm_obj(f"Mirror{s}", bm)
-        smooth_by_angle(mir, 80)
-        assign(mir, PAINT)
-        bm = bmesh.new()
-        bmesh.ops.create_cone(bm, cap_ends=True, segments=16, radius1=0.014, radius2=0.012, depth=0.16,
-                              matrix=Matrix.Translation((0.60, s * 0.885, 0.84)) @
-                              Matrix.Rotation(math.pi / 2, 4, "X"))
-        st = bm_obj(f"MirrorStalk{s}", bm)
-        smooth_by_angle(st, 80)
-        assign(st, M_BLACK)
-        bm = bmesh.new()
-        bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=16, radius=1.0,
-                                  matrix=Matrix.Translation((0.515, s * 0.975, 0.865)) @
-                                  Matrix.Rotation(s * 0.2, 4, "Z") @ Matrix.Diagonal((0.008, 0.064, 0.038, 1)))
-        mg = bm_obj(f"MirrorGlass{s}", bm)
-        assign(mg, M_MIRRORGLASS)
-        # ---- pillars ------------------------------------------------------------
-        belt = [(0.56, 0.772), (0.3, 0.78), (-0.4, 0.80), (-1.0, 0.84), (-1.3, 0.875)]
-        surface_tube(f"BeltTrim{s}", cabin, [(x, s * 3.0, z) for x, z in belt], (0, -s, 0), 0.007, M_RUBBER,
-                     offset=-0.001, step=0.01)
-    # ---- centre grille, hood & trunk lines, diffuser, splitter ----------------------
-    surface_patch("Grille", body, (2.3, 0, 0.318), (-1, 0, 0), (0, 1, 0), 0.40, 0.068, n=3.4,
+        for k, dz in enumerate((0.016, -0.014)):
+            tl = [Pt + u * t + v * (dz + t * math.sin(-0.05)) for t in np.linspace(-0.25, 0.29, 14)]
+            surface_tube(f"TailGlow{s}_{k}", body, tl, (1, 0, 0), 0.0038, M_TAILGLOW, offset=0.0042, step=0.006)
+        surface_patch(f"TailSide{s}", body, (-2.10, s * 3.0, 0.84), (0, -s, 0), (1, 0, 0), 0.085, 0.030,
+                      n=4.0, mat=M_TAIL, offset=0.0025, v=(0, 0, 1))
+        # ---- quad exhaust tips in the diffuser (x placed by a ray-cast of the tail) -----------
+        for ey in (0.36, 0.49):
+            ey *= s
+            ez = 0.355
+            loc, nor = cast(body, (-4.0, ey, ez), (1, 0, 0), 6.0)
+            x0 = (loc.x if loc else -2.15) - 0.015
+            bm = bmesh.new()
+            bmesh.ops.create_cone(bm, cap_ends=False, segments=40, radius1=0.043, radius2=0.044, depth=0.14,
+                                  matrix=Matrix.Translation((x0 + 0.05, ey, ez)) @ Matrix.Rotation(math.pi / 2, 4, "Y"))
+            ex = bm_obj(f"Exhaust{s}", bm)
+            add_mod(ex, "SOLIDIFY", thickness=0.004, offset=0)
+            add_mod(ex, "BEVEL", width=0.0015, segments=2)
+            apply_mods(ex)
+            smooth_by_angle(ex, 50)
+            assign(ex, M_TIPS)
+            bm = bmesh.new()
+            bmesh.ops.create_cone(bm, cap_ends=True, segments=40, radius1=0.040, radius2=0.040, depth=0.01,
+                                  matrix=Matrix.Translation((x0 + 0.07, ey, ez)) @ Matrix.Rotation(math.pi / 2, 4, "Y"))
+            assign(bm_obj(f"ExhaustInner{s}", bm), M_RUBBER)
+        # ---- door mirrors: painted housing on a thin arm from the door top ------------------
+        hc = Vector((0.30, s * 0.975, 0.890))
+        # housing: wider at the outer end, swept back
+        superellipsoid(f"Mirror{s}", hc, (0.062, 0.100, 0.054), n=2.3, mat=PAINT_PLAIN, rot=(0, 0, s * 0.12),
+                       taper=lambda t, s=s: 0.82 + 0.18 * (t * s + 1) / 2)
+        superellipsoid(f"MirrorGlass{s}", hc + Vector((-0.058, -s * 0.006, 0)), (0.005, 0.086, 0.042), n=3.0,
+                       mat=M_MIRRORGLASS, rot=(0, 0, s * 0.12))
+        # arm root sits on the door top: ray-cast straight down onto the shoulder
+        loc, _ = cast(body, (0.35, s * 0.80, 2.0), (0, 0, -1), 3.0)
+        base_ = Vector((0.35, s * 0.80, (loc.z if loc else 0.82) - 0.004))
+        tip_ = Vector((0.31, s * 0.885, 0.885))
+        mid_, dv = (base_ + tip_) / 2, tip_ - base_
+        superellipsoid(f"MirrorArm{s}", mid_, (0.034, dv.length / 2 + 0.02, 0.016), n=2.2, mat=PAINT_PLAIN,
+                       rot=(s * math.atan2(dv.z, abs(dv.y)), 0, 0))
+    # ---- grille: wide rounded-trapezoid opening with slats and a satin surround -----------------
+    surface_patch("Grille", body, (2.40, 0, 0.345), (-1, 0, 0), (0, 1, 0), 0.400, 0.082, n=4.2,
                   mat=M_GRILLE, offset=0.002)
-    hood = [(0.97, -0.52), (1.25, -0.60), (1.7, -0.66), (2.0, -0.55), (2.17, -0.30), (2.2, 0.0),
-            (2.17, 0.30), (2.0, 0.55), (1.7, 0.66), (1.25, 0.60), (0.97, 0.52), (0.97, -0.52)]
-    surface_tube("HoodLine", body, [(x, y, 3.0) for x, y in hood], (0, 0, -1), 0.0022, M_RUBBER,
+    surface_tube("GrilleSurround", body, [(2.6, y, z) for y, z in outline(0.0, 0.345, 0.407, 0.089, 4.2, 72)],
+                 (-1, 0, 0), 0.0055, M_SATIN, offset=0.002, step=0.006, closed=True)
+    # ---- clamshell hood line, hood louvres, deck lid line ------------------------------------------
+    hood = [(0.52, -0.62), (0.90, -0.70), (1.40, -0.735), (1.85, -0.70), (2.12, -0.56), (2.20, -0.30), (2.22, 0.0),
+            (2.20, 0.30), (2.12, 0.56), (1.85, 0.70), (1.40, 0.735), (0.90, 0.70), (0.52, 0.62)]
+    hood = hood + [(0.52, -0.62)]
+    surface_tube("HoodLine", body, [(x, y, 3.0) for x, y in hood], (0, 0, -1), 0.0021, M_RUBBER,
                  offset=-0.0008, step=0.01)
-    trunk = [(-1.38, -0.60), (-1.8, -0.72), (-2.1, -0.60), (-2.2, -0.35), (-2.22, 0.0), (-2.2, 0.35),
-             (-2.1, 0.60), (-1.8, 0.72), (-1.38, 0.60), (-1.38, -0.60)]
-    surface_tube("TrunkLine", body, [(x, y, 3.0) for x, y in trunk], (0, 0, -1), 0.0022, M_RUBBER,
+    for s in (1, -1):
+        surface_patch(f"HoodLouvre{s}", body, (1.52, s * 0.36, 3.0), (0, 0, -1), (1, 0, 0), 0.17, 0.062,
+                      n=3.0, rot=-s * 0.10, mat=M_LOUVRE, offset=0.002, v=(0, s, 0))
+    trunk = [(-1.66, -0.56), (-1.95, -0.68), (-2.12, -0.62), (-2.165, -0.35), (-2.175, 0.0), (-2.165, 0.35),
+             (-2.12, 0.62), (-1.95, 0.68), (-1.66, 0.56), (-1.66, -0.56)]
+    surface_tube("TrunkLine", body, [(x, y, 3.0) for x, y in trunk], (0, 0, -1), 0.0021, M_RUBBER,
                  offset=-0.0008, step=0.01)
-    # splitter
+    # smoked light bar joining the tail lamps
+    surface_patch("TailBar", body, (-2.30, 0, 0.840), (1, 0, 0), (0, 1, 0), 0.32, 0.016, n=6.0,
+                  mat=M_TAIL, offset=0.0022)
+    # ---- splitter -------------------------------------------------------------------------------------
     bm = bmesh.new()
     verts = []
     for k in range(64):
         th = 2 * math.pi * k / 64
-        verts.append(bm.verts.new((2.05 + 0.24 * float(sgnpow(math.cos(th), 0.5)),
-                                   0.66 * float(sgnpow(math.sin(th), 0.5)), 0.158)))
+        verts.append(bm.verts.new((2.13 + 0.22 * float(sgnpow(math.cos(th), 0.55)),
+                                   0.70 * float(sgnpow(math.sin(th), 0.45)), 0.165)))
     bm.faces.new(verts)
     spl = bm_obj("Splitter", bm)
     add_mod(spl, "SOLIDIFY", thickness=0.016, offset=0)
     add_mod(spl, "BEVEL", width=0.004, segments=2)
     apply_mods(spl)
     assign(spl, carbon)
-    # diffuser + fins
+    # ---- diffuser + fins --------------------------------------------------------------------------
     bm = bmesh.new()
-    box(bm, (0.40, 1.10, 0.014), (-2.02, 0, 0.30))
-    for i in range(-3, 4):
-        box(bm, (0.38, 0.010, 0.07), (-2.02, i * 0.16, 0.265))
+    # sits under the tucked lower tail: plate just below the body floor, fins hang from it
+    loc, _ = cast(body, (-4.0, 0.0, 0.31), (1, 0, 0), 6.0)
+    x_end = (loc.x if loc else -2.12) + 0.01
+    box(bm, (0.40, 1.10, 0.012), (x_end + 0.20, 0, 0.300))
+    for i in (-2, -1, 0, 1, 2):
+        box(bm, (0.36, 0.010, 0.080), (x_end + 0.20, i * 0.125, 0.258))
     dif = bm_obj("Diffuser", bm)
     add_mod(dif, "BEVEL", width=0.003, segments=1)
     apply_mods(dif)
@@ -1162,18 +1267,18 @@ def build_interior():
     acc = mat_principled("SeatAccent", (0.30, 0.02, 0.02), 0.45, 0.0)
     dark = mat_principled("DashPlastic", (0.012, 0.012, 0.013), 0.5, 0.0)
     carpet = mat_principled("Carpet", (0.012, 0.012, 0.012), 0.95, 0.0)
-    rbox("Floor", (2.0, 1.15, 0.02), (-0.15, 0, 0.32), carpet, 0.004, seg=1)
-    tilt = (0, math.radians(-14), 0)
+    rbox("Floor", (2.0, 1.20, 0.02), (-0.55, 0, 0.32), carpet, 0.004, seg=1)
+    tilt = (0, math.radians(-16), 0)
     for s in (1, -1):
         y = s * 0.37
-        rbox(f"SeatBase{s}", (0.52, 0.46, 0.12), (-0.28, y, 0.46), lea, 0.035)
-        rbox(f"SeatBack{s}", (0.12, 0.46, 0.50), (-0.58, y, 0.76), lea, 0.035, rot=tilt)
-        rbox(f"SeatBolster{s}", (0.14, 0.07, 0.42), (-0.55, y + s * 0.20, 0.74), lea, 0.03, rot=tilt)
-        rbox(f"SeatInsert{s}", (0.015, 0.24, 0.34), (-0.515, y, 0.76), acc, 0.006, rot=tilt)
-        rbox(f"Headrest{s}", (0.09, 0.24, 0.11), (-0.655, y, 0.94), lea, 0.025, rot=tilt)
-    rbox("DashTop", (0.34, 1.20, 0.07), (0.60, 0, 0.745), dark, 0.025)
-    rbox("Cluster", (0.20, 0.42, 0.10), (0.46, 0.37, 0.79), dark, 0.03)
-    rbox("Console", (0.80, 0.20, 0.22), (-0.10, 0, 0.42), dark, 0.03)
+        rbox(f"SeatBase{s}", (0.52, 0.46, 0.12), (-0.36, y, 0.46), lea, 0.035)
+        rbox(f"SeatBack{s}", (0.12, 0.46, 0.52), (-0.67, y, 0.77), lea, 0.035, rot=tilt)
+        rbox(f"SeatBolster{s}", (0.14, 0.07, 0.44), (-0.64, y + s * 0.20, 0.75), lea, 0.03, rot=tilt)
+        rbox(f"SeatInsert{s}", (0.015, 0.24, 0.34), (-0.605, y, 0.77), acc, 0.006, rot=tilt)
+        rbox(f"Headrest{s}", (0.09, 0.24, 0.11), (-0.75, y, 0.96), lea, 0.025, rot=tilt)
+    rbox("DashTop", (0.36, 1.24, 0.08), (0.24, 0, 0.80), dark, 0.03)
+    rbox("Cluster", (0.18, 0.40, 0.09), (0.09, 0.37, 0.84), dark, 0.03)
+    rbox("Console", (0.85, 0.20, 0.24), (-0.20, 0, 0.43), dark, 0.03)
     cu = bpy.data.curves.new("SteeringRim", "CURVE")
     cu.dimensions = "3D"
     cu.bevel_depth = 0.017
@@ -1186,7 +1291,7 @@ def build_interior():
         sp.points[i].co = (0.17 * math.cos(a_), 0.17 * math.sin(a_), 0.0, 1.0)
     cu.materials.append(dark)
     sw = link(bpy.data.objects.new("SteeringWheel", cu))
-    sw.location = (0.28, 0.37, 0.86)
+    sw.location = (-0.02, 0.37, 0.84)
     sw.rotation_euler = (0, math.radians(62), 0)
 
 
@@ -1234,8 +1339,10 @@ def build_environment():
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
 PAINT = mat_car_paint()
+PAINT_PLAIN = mat_car_paint("PaintPlain", masks=False)   # for parts whose object space isn't the car's
 TIRE_MAT = mat_tire()
-RIM_MAT = mat_principled("RimSatin", (0.42, 0.42, 0.44), 0.22, 1.0)
+RIM_MAT = mat_principled("RimSatin", (0.13, 0.13, 0.14), 0.30, 1.0)    # dark gunmetal
+LIP_MAT = mat_principled("RimLip", (0.75, 0.75, 0.77), 0.12, 1.0)      # machined lip
 CHROME = mat_principled("Chrome", (0.9, 0.9, 0.9), 0.06, 1.0)
 DISC_MAT = mat_principled("BrakeDisc", (0.16, 0.15, 0.15), 0.55, 1.0)
 CALIPER_MAT = mat_principled("Caliper", (0.9, 0.55, 0.0), 0.28, 0.0, Coat_Weight=1.0)
@@ -1244,13 +1351,14 @@ ASPHALT = mat_asphalt()
 build_world()
 build_ground()
 body = build_body()
-cabin = build_cabin()
-build_details(body, cabin)
+build_greenhouse(PAINT_PLAIN,
+                 mat_principled("FrameTrim", (0.012, 0.012, 0.012), 0.35), mat_glass("CabinGlassMat", tint=(0.17, 0.18, 0.18)))
+build_details(body)
 build_interior()
 build_environment()
 
-proto = build_wheel(1.0, True)
-rproto = build_wheel(1.12, False)
+proto = build_wheel(TIRE_W_F)
+rproto = build_wheel(TIRE_W_R)
 place_wheel(proto, FRONT_X, -1)
 place_wheel(rproto, REAR_X, -1)
 duplicate_group(proto, FRONT_X, +1)
