@@ -5,15 +5,15 @@
 --
 -- Setup
 --   1. Studio: File > Import 3D > roblox_export/SportsCar.fbx, import as a Model (name SportsCar).
---      Expected children: Body, CabinGlass, CabinFrame, Details, Interior, Wheel_FL/FR/RL/RR.
+--      Expected children: Body, CabinGlass, CabinFrame, Details, Trim, Interior, Wheel_FL/FR/RL/RR.
 --   2. The import arrives 100x too big and facing +Z. In the Command Bar run:
 --        local m = workspace.SportsCar; m:ScaleTo(0.01); m:PivotTo(CFrame.new(0, 0.5, 0) * CFrame.Angles(0, math.pi, 0))
 --      (pivot is at ground level under the wheel centroid, so this sits it on a flat floor facing -Z).
 --   3. Put THIS file in ServerScriptService as a Script (RunContext = Legacy or Server) and press Play.
 --
 -- The car faces -Z (VehicleSeat forward), right side is +X. The FBX is 1 stud = 0.28 m, so the car is
--- ~16 studs long. A Roblox avatar is ~5 studs tall and the cabin is only ~2.8 studs high at that
--- size, so CAR_SCALE enlarges the whole car; lower it if you want the original proportions.
+-- ~16.4 studs long and its roof is 4.6 studs off the ground (a 1.285 m GT). A Roblox avatar is ~5 studs
+-- tall, so CAR_SCALE enlarges the whole car; lower it if you want the original proportions.
 
 local RunService = game:GetService("RunService")
 
@@ -26,7 +26,7 @@ local STEER_SIGN = 1         -- flip to -1 if steering is mirrored
 
 local STUD = 1 / 0.28
 local WHEEL_R_BLENDER = 0.345 * STUD   -- studs before CAR_SCALE
-local WHEEL_W_BLENDER = 1.02
+local WHEEL_W_BLENDER = 1.0         -- studs: tyres are 255 mm front / 295 mm rear (0.91 / 1.05 studs)
 
 local model = workspace:WaitForChild("SportsCar") :: Model
 local function find(name: string): BasePart
@@ -79,7 +79,7 @@ local function weld(a: BasePart, b: BasePart)
 	w.Parent = b
 end
 
-for _, n in { "CabinGlass", "CabinFrame", "Details", "Interior" } do
+for _, n in { "CabinGlass", "CabinFrame", "Details", "Trim", "Interior" } do
 	weld(body, find(n))
 end
 
@@ -110,8 +110,9 @@ seat.MaxSpeed = 0 -- we drive the wheels ourselves
 seat.Torque = 0
 seat.TurnSpeed = 0
 seat.HeadsUpDisplay = false -- replaced by the speedometer below
--- 0.40 m: on the seat cushion, which export_roblox.py lowers 10 cm so a seated avatar's head clears the roof
-seat.CFrame = carCF * CFrame.new(fromBlender(-0.28, 0.37, 0.40))
+-- x -0.36 m: the seat cushion centre behind the long GT hood; z 0.40 m: on the cushion, which
+-- export_roblox.py lowers 10 cm so a seated avatar's head clears the roof
+seat.CFrame = carCF * CFrame.new(fromBlender(-0.36, 0.37, 0.40))
 seat.Parent = model
 weld(body, seat)
 
