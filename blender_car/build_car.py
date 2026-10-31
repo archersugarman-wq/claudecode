@@ -36,6 +36,8 @@ ap.add_argument("--exposure", type=float, default=-0.8)
 ap.add_argument("--glow", default="5,0.05,0.45", help="bloom threshold,strength,size ; or off")
 ap.add_argument("--cam", default="hero", choices=["hero", "side", "rear", "front", "wheel"])
 ARGS = ap.parse_args(argv)
+# Blender cannot save a render to a bare relative path, so resolve against the current directory
+ARGS.out, ARGS.blend = os.path.abspath(ARGS.out), os.path.abspath(ARGS.blend)
 
 QUALITY = {
     "draft": dict(res=(640, 360), samples=24),
